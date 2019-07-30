@@ -49,6 +49,10 @@ type AriaServicePersonList struct {
 	Items []AriaServicePerson `json:"items"`
 }
 
+// STS & ECAL app constants
+const roleStsSolutionEngineer = "1"
+const roleStsManager = "3"
+
 func main() {
 	// read system configuration from config file
 	config := loadConfig("config.json")
@@ -87,8 +91,9 @@ func main() {
 		}
 
 		// temporary break out
-		if i >= 0 {
-			fmt.Println("stop on one user!!!")
+		if i >= 9 {
+			fmt.Println("premature stop for testing!!!")
+			fmt.Printf("*** Sucessfully processed [%d/%d] Users\n", usersSucessfullyProcessed, len(peopleList.Items))
 			return
 		}
 	}
@@ -315,6 +320,11 @@ func addUserToSTS(config Config, client *http.Client, accessToken string, person
 		payload = strings.ReplaceAll(payload, "%FIRSTNAME%", person.FirstName)
 		payload = strings.ReplaceAll(payload, "%LASTNAME%", person.LastName)
 		payload = strings.ReplaceAll(payload, "%MANAGER%", person.Manager)
+		if person.NumberOfDirects > 0 {
+			payload = strings.ReplaceAll(payload, "%ROLE%", roleStsManager)
+		} else {
+			payload = strings.ReplaceAll(payload, "%ROLE%", roleStsSolutionEngineer)
+		}
 
 		req, _ = http.NewRequest("POST", config.StsUserEndpoint, strings.NewReader(payload))
 		req.SetBasicAuth(config.VbcsUsername, config.VbcsPassword)

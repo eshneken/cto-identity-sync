@@ -16,7 +16,7 @@ The app requires a file named *config.json* to be present the same directory fro
     "VbcsUsername": "{{serviceaccount_username}}",
     "VbcsPassword": "{{serviceaccount_password}}",
     "StsUserEndpoint": "https://{{your_instance_name}}.integration.ocp.oraclecloud.com/ic/builder/design/Skills_Task_Set_current_/1.0/resources/data/STSUser",
-    "StsUserAddPayload": "{\"userEmail\":\"%USERNAME%\",\"firstName\":\"%FIRSTNAME%\",\"lastName\":\"%LASTNAME%\",\"path\":1,\"manager\":\"%MANAGER%\",\"roleName\":1}",
+    "StsUserAddPayload": "{\"userEmail\":\"%USERNAME%\",\"firstName\":\"%FIRSTNAME%\",\"lastName\":\"%LASTNAME%\",\"path\":1,\"manager\":\"%MANAGER%\",\"roleName\":%ROLE%}", 
     "StsUpdateManagerPayload": "{\"manager\": \"%MANAGER%\"}"
 }
 ```
@@ -42,3 +42,4 @@ https://www.oracle.com/webfolder/technetwork/tutorials/obe/cloud/idcs/idcs_rest_
 ## Third Party Packages Used
 
  * Read-only JSON pathing support:  https://github.com/tidwall/gjson
+ 

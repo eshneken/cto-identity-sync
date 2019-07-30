@@ -1,10 +1,11 @@
-//  CTO tenancy Identity Synchronizer
-//	Ed Shnekendorf, 2019, https://github.com/eshneken
+//	CTO Tenancy Identity Synchronizer
+//	Ed Shnekendorf, 2019, https://github.com/eshneken/cto-identity-synchronizer
 
 package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -52,6 +53,9 @@ func main() {
 	// read system configuration from config file
 	config := loadConfig("config.json")
 
+	// determine if we are synchronizing or deleting users for this run
+	deleteFlagSet := deleteOnThisRun()
+
 	// create HTTP Client
 	client := &http.Client{}
 
@@ -60,7 +64,7 @@ func main() {
 	accessToken := getIDCSAccessToken(config, client)
 
 	// retrieve all person objects from bespoke Aria service
-	fmt.Println("Calling Aria Service")
+	fmt.Println("Calling Aria service to retrieve SE org")
 	peopleList := getPeopleFromAria(config, client)
 	fmt.Printf("Retrieved [%d] person entries from Aria Service\n", len(peopleList.Items))
 
@@ -69,40 +73,18 @@ func main() {
 	for i, person := range peopleList.Items {
 		fmt.Printf("*** Processing user [%d/%d] -> %s\n", i+1, len(peopleList.Items), person.DisplayName)
 
-		// Convert manager DN to email address
-		person.Manager = convertManagerDnToEmail(person.Manager)
-
-		// Adds user to IDCS and returns the user's unique IDCS ID.  If user cannot be added due to error or user already
-		// existing then return empty string.  For now we will skip changing the user's group association and proceed just to
-		// update them in VBCS
-		addedUserID, err := addUserToIDCS(config, client, accessToken, person)
-		if err != nil {
-			fmt.Println("Error adding user to IDCS, continuing to next user...")
-			continue
-		}
-
-		// if this is a new user, add the user to the correct IDCS groups based on whether they are an
-		// employee or a manager.  If the user has already been previously added to IDCS then assume the groups
-		// are correct.  As a sidenote, this clearly will break if a previously defined manager became an IC or vice
-		// versa but we won't worry about that edge case for now since this should be a rare occurence.
-		if len(addedUserID) > 0 {
-			err = addUserToIDCSGroups(config, client, accessToken, person, addedUserID)
-			if err != nil {
-				fmt.Println("Error adding user to IDCS groups, continuing to next user...")
-				continue
-			}
-		}
-
-		// add the user to the STS VBCS app user repository.  If the user exists, check the manager to make sure that
-		// data is current and update if needed
-		err = addUserToSTS(config, client, accessToken, person)
-		if err != nil {
-			fmt.Println("Error adding user to STS App, continuing to next user...")
-			continue
-		}
-
 		// if we made it this far then the user has been fully added to IDCS, groups, and VBCS apps so count the success
-		usersSucessfullyProcessed++
+		err := errors.New("")
+		if deleteFlagSet {
+			err = deleteUser(config, client, accessToken, person)
+		} else {
+			err = synchronizeUser(config, client, accessToken, person)
+		}
+		if err != nil {
+			fmt.Println(err.Error())
+		} else {
+			usersSucessfullyProcessed++
+		}
 
 		// temporary break out
 		if i >= 0 {
@@ -111,6 +93,105 @@ func main() {
 		}
 	}
 	fmt.Printf("*** Sucessfully processed [%d/%d] Users\n", usersSucessfullyProcessed, len(peopleList.Items))
+}
+
+//
+// Synchronize a single user to IDCS/VBCS.  If a condition occurs that prevents this user from being added
+// then return an error so that the calling function can continue on to the next user.
+//
+func synchronizeUser(config Config, client *http.Client, accessToken string, person AriaServicePerson) error {
+	// Convert manager DN to email address
+	person.Manager = convertManagerDnToEmail(person.Manager)
+
+	// Adds user to IDCS and returns the user's unique IDCS ID.  If user cannot be added due to error or user already
+	// existing then return empty string.  For now we will skip changing the user's group association and proceed just to
+	// update them in VBCS
+	addedUserID, err := addUserToIDCS(config, client, accessToken, person)
+	if err != nil {
+		fmt.Println("Error adding user to IDCS, continuing to next user...")
+		return err
+	}
+
+	// if this is a new user, add the user to the correct IDCS groups based on whether they are an
+	// employee or a manager.  If the user has already been previously added to IDCS then assume the groups
+	// are correct.  As a sidenote, this clearly will break if a previously defined manager became an IC or vice
+	// versa but we won't worry about that edge case for now since this should be a rare occurence.
+	if len(addedUserID) > 0 {
+		err = addUserToIDCSGroups(config, client, accessToken, person, addedUserID)
+		if err != nil {
+			fmt.Println("Error adding user to IDCS groups, continuing to next user...")
+			return err
+		}
+	}
+
+	// add the user to the STS VBCS app user repository.  If the user exists, check the manager to make sure that
+	// data is current and update if needed
+	err = addUserToSTS(config, client, accessToken, person)
+	if err != nil {
+		fmt.Println("Error adding user to STS App, continuing to next user...")
+		return err
+	}
+
+	return nil
+}
+
+//
+// Delete a single user from IDCS/VBCS.  If a condition occurs that prevents this user from being deleting
+// then return an error so that the calling function can continue on to the next user.
+//
+func deleteUser(config Config, client *http.Client, accessToken string, person AriaServicePerson) error {
+	// get user ID from IDCS
+	queryString := url.QueryEscape("userName eq \"" + strings.TrimSpace(person.UserID) + "\"")
+	req, _ := http.NewRequest("GET", config.IdcsBaseURL+"/admin/v1/Users?filter="+queryString, nil)
+	req.Header.Add("Authorization", "Bearer "+accessToken)
+	res, err := client.Do(req)
+	if err != nil || res == nil || res.StatusCode != 200 {
+		return errors.New(outputHTTPError("Getting User ID from IDCS", err, res))
+	}
+	defer res.Body.Close()
+
+	json, _ := ioutil.ReadAll(res.Body)
+	result := gjson.Get(string(json), "Resources.0.id")
+	idcsUserID := result.String()
+	if len(idcsUserID) < 1 {
+		return errors.New(outputHTTPError("Getting User ID from IDCS",
+			fmt.Errorf("User Email [%s] not found in IDCS when trying to delete user [%s]",
+				strings.TrimSpace(idcsUserID), person.DisplayName), res))
+	}
+
+	// delete user from IDCS and set the force flag since we want to automatically remove the user's group associations
+	req, _ = http.NewRequest("DELETE", config.IdcsBaseURL+"/admin/v1/Users/"+idcsUserID+"?forceDelete=true", nil)
+	req.Header.Add("Authorization", "Bearer "+accessToken)
+	res, err = client.Do(req)
+	if err != nil || res == nil || (res.StatusCode != 200 && res.StatusCode != 204) {
+		return errors.New(outputHTTPError("Deleting user from IDCS", err, res))
+	}
+
+	// get user from STS
+	queryString = "q=userEmail='" + person.UserID + "'"
+	req, _ = http.NewRequest("GET", config.StsUserEndpoint+"?"+queryString, nil)
+	req.SetBasicAuth(config.VbcsUsername, config.VbcsPassword)
+	res, err = client.Do(req)
+	if err != nil || res == nil || res.StatusCode != 200 {
+		return errors.New(outputHTTPError("Get STS user by email", err, res))
+	}
+	json, _ = ioutil.ReadAll(res.Body)
+	stsUserID := gjson.Get(string(json), "items.0.id")
+	if len(stsUserID.String()) < 1 {
+		return errors.New(outputHTTPError("Getting User ID from STS",
+			fmt.Errorf("User Email [%s] not found in STS when trying to delete user [%s]",
+				strings.TrimSpace(idcsUserID), person.DisplayName), res))
+	}
+
+	// delete user from STS
+	req, _ = http.NewRequest("DELETE", config.StsUserEndpoint+"/"+stsUserID.String(), nil)
+	req.SetBasicAuth(config.VbcsUsername, config.VbcsPassword)
+	res, err = client.Do(req)
+	if err != nil || res == nil || (res.StatusCode != 200 && res.StatusCode != 204) {
+		return errors.New(outputHTTPError("Delete STS user", err, res))
+	}
+
+	return nil
 }
 
 //
@@ -133,8 +214,7 @@ func addUserToIDCSGroups(config Config, client *http.Client, accessToken string,
 		req.Header.Add("Authorization", "Bearer "+accessToken)
 		res, err := client.Do(req)
 		if err != nil || res == nil || res.StatusCode != 200 {
-			fmt.Println(outputHTTPError("Getting Group ID from IDCS", err, res))
-			return err
+			return errors.New(outputHTTPError("Getting Group ID from IDCS", err, res))
 		}
 		defer res.Body.Close()
 
@@ -142,10 +222,9 @@ func addUserToIDCSGroups(config Config, client *http.Client, accessToken string,
 		result := gjson.Get(string(json), "Resources.0.id")
 		groupID := result.String()
 		if len(groupID) < 1 {
-			fmt.Println(outputHTTPError("Getting Group ID from IDCS",
+			return errors.New(outputHTTPError("Getting Group ID from IDCS",
 				fmt.Errorf("Group Name [%s] not found in IDCS when trying to add user [%s]",
 					strings.TrimSpace(groupName), person.DisplayName), res))
-			return err
 		}
 
 		// add the user to the group
@@ -157,8 +236,7 @@ func addUserToIDCSGroups(config Config, client *http.Client, accessToken string,
 		req.Header.Add("Content-Length", strconv.Itoa(len(payload)))
 		res, err = client.Do(req)
 		if err != nil || res == nil || res.StatusCode != 200 {
-			fmt.Println(outputHTTPError("Adding user to IDCS", err, res))
-			return err
+			return errors.New(outputHTTPError("Adding user to IDCS", err, res))
 		}
 	}
 
@@ -324,7 +402,8 @@ func outputHTTPError(message string, err error, res *http.Response) string {
 	} else if res == nil {
 		return fmt.Sprintf("ERROR: %s: %s", message, "HTTP Response is nil")
 	} else {
-		return fmt.Sprintf("ERROR: %s: %s", message, res.Status)
+		json, _ := ioutil.ReadAll(res.Body)
+		return fmt.Sprintf("ERROR: %s: %s: detail ->%s", message, res.Status, string(json))
 	}
 }
 
@@ -345,6 +424,34 @@ func convertManagerDnToEmail(managerDN string) string {
 	cnComponents := strings.Split(email, "=")
 	email = cnComponents[1] + "@oracle.com"
 	return email
+}
+
+//
+// Determines whether this run should add or delete users from IDCS/VBCS.  Returns true to delete
+// and false to add (sets a delete flag on the main loop).  If --help or -h is passed in outputs
+// help to the command line
+//
+func deleteOnThisRun() bool {
+	if len(os.Args) < 2 || os.Args[1] == "-h" || os.Args[1] == "--help" {
+		fmt.Printf("Usage: %s [--help || --add || --delete]\n", os.Args[0])
+		fmt.Println("--help:  Prints this message")
+		fmt.Println("--add:  Synchronizes users from Aria service to IDCS/VBCS apps")
+		fmt.Println("--delete:  Removes users returned from Aria service from IDCS/VBCS apps")
+		os.Exit(1)
+	}
+
+	if os.Args[1] == "--delete" {
+		fmt.Println("Starting user DELETION flow")
+		return true
+	} else if os.Args[1] == "--add" {
+		fmt.Println("Starting user ADDITION flow")
+		return false
+	} else {
+		fmt.Printf("Missing command line arguments.  Try %s --help\n", os.Args[0])
+		os.Exit(3)
+	}
+
+	return true // this return should never be reached
 }
 
 //

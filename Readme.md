@@ -21,7 +21,18 @@ The app requires a file named *config.json* to be present the same directory fro
 }
 ```
 
-##  Principles for API Usage
+This utility supports both synchronizing from the source to IDCS/VBCS as well as removing all users (based on the same source) from the target systems.
+
+## Usage
+```
+cto-identity-sync [--help || --add || --delete]
+
+--help:     Prints this message
+--add:      Synchronizes users from Aria service to IDCS/VBCS apps
+--delete:   Removes users returned from Aria service from IDCS/VBCS apps
+```
+
+## Principles for API Usage
 * Setting up IDCS with client application to retrieve JWT bearer tokens:  https://www.oracle.com/webfolder/technetwork/tutorials/obe/cloud/idcs/idcs_rest_1stcall_obe/rest_1stcall.html
  * Using IDCS APIs:
 https://www.oracle.com/webfolder/technetwork/tutorials/obe/cloud/idcs/idcs_rest_users_obe/rest_users.html
@@ -30,4 +41,4 @@ https://www.oracle.com/webfolder/technetwork/tutorials/obe/cloud/idcs/idcs_rest_
 
 ## Third Party Packages Used
 
- * Read-only JSON support:  https://github.com/tidwall/gjson
+ * Read-only JSON pathing support:  https://github.com/tidwall/gjson

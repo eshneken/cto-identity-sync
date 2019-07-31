@@ -1,5 +1,5 @@
 //	CTO Tenancy Identity Synchronizer
-//	Ed Shnekendorf, 2019, https://github.com/eshneken/cto-identity-synchronizer
+//	Ed Shnekendorf, 2019, https://github.com/eshneken/cto-identity-synch
 
 package main
 
@@ -63,19 +63,24 @@ func main() {
 	// create HTTP Client
 	client := &http.Client{}
 
-	// get IDCS bearer token
-	fmt.Println("Authenticating to IDCS")
-	accessToken := getIDCSAccessToken(config, client)
-
 	// retrieve all person objects from bespoke Aria service
 	fmt.Println("Calling Aria service to retrieve SE org")
 	peopleList := getPeopleFromAria(config, client)
 	fmt.Printf("Retrieved [%d] person entries from Aria Service\n", len(peopleList.Items))
 
+	// get IDCS bearer token
+	fmt.Println("Authenticating to IDCS")
+	accessToken := getIDCSAccessToken(config, client)
+
 	// This it the main control loop.  For each person returned from the service
 	usersSucessfullyProcessed := 0
 	for i, person := range peopleList.Items {
 		fmt.Printf("*** Processing user [%d/%d] -> %s\n", i+1, len(peopleList.Items), person.DisplayName)
+
+		// REMOVE AFTER TESTING:  Don't touch these accounts for now
+		if person.LastName == "Kidwell" || person.LastName == "Corcoran" || person.LastName == "Shnekendorf" || person.LastName == "Kundu" || person.LastName == "Rauner" {
+			continue
+		}
 
 		// if we made it this far then the user has been fully added to IDCS, groups, and VBCS apps so count the success
 		err := errors.New("")
@@ -90,8 +95,8 @@ func main() {
 			usersSucessfullyProcessed++
 		}
 
-		// temporary break out
-		if i >= 9 {
+		// REMOVE AFTER TESTING:  Stop at some fixed count
+		if i >= 24 {
 			fmt.Println("premature stop for testing!!!")
 			fmt.Printf("*** Sucessfully processed [%d/%d] Users\n", usersSucessfullyProcessed, len(peopleList.Items))
 			return

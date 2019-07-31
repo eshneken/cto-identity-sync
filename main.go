@@ -79,6 +79,7 @@ func main() {
 
 		// REMOVE AFTER TESTING:  Don't touch these accounts for now
 		if person.LastName == "Kidwell" || person.LastName == "Corcoran" || person.LastName == "Shnekendorf" || person.LastName == "Kundu" || person.LastName == "Rauner" {
+			fmt.Println("Skipping user: " + person.DisplayName)
 			continue
 		}
 
@@ -97,7 +98,7 @@ func main() {
 
 		// REMOVE AFTER TESTING:  Stop at some fixed count
 		if i >= 24 {
-			fmt.Println("premature stop for testing!!!")
+			fmt.Println("Premature stop for testing!!!")
 			fmt.Printf("*** Sucessfully processed [%d/%d] Users\n", usersSucessfullyProcessed, len(peopleList.Items))
 			return
 		}

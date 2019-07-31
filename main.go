@@ -1,5 +1,5 @@
 //	CTO Tenancy Identity Synchronizer
-//	Ed Shnekendorf, 2019, https://github.com/eshneken/cto-identity-synch
+//	Ed Shnekendorf, 2019, https://github.com/eshneken/cto-identity-sync
 
 package main
 

@@ -32,6 +32,13 @@ type Config struct {
 	StsUserEndpoint           string
 	StsUserAddPayload         string
 	StsUpdateManagerPayload   string
+	StsUserRoleCode           string
+	StsManagerRoleCode        string
+	EcalUserEndpoint          string
+	EcalUserAddPayload        string
+	EcalUpdateManagerPayload  string
+	EcalUserRoleCode          string
+	EcalManagerRoleCode       string
 }
 
 // AriaServicePerson represents an individual returned from the custom Aria export service
@@ -48,10 +55,6 @@ type AriaServicePerson struct {
 type AriaServicePersonList struct {
 	Items []AriaServicePerson `json:"items"`
 }
-
-// STS & ECAL app constants
-const roleStsSolutionEngineer = "1"
-const roleStsManager = "3"
 
 func main() {
 	// read system configuration from config file
@@ -135,9 +138,21 @@ func synchronizeUser(config Config, client *http.Client, accessToken string, per
 		}
 	}
 
+	// add the user to the ECAL VBCS app user repository.  If the user exists, check the manager to make sure that
+	// data is current and update if needed
+	err = addUserToVBCSApp("ECAL", config.EcalUserEndpoint, config.VbcsUsername, config.VbcsPassword,
+		config.EcalUserAddPayload, config.EcalUpdateManagerPayload, config.EcalUserRoleCode, config.EcalManagerRoleCode,
+		client, accessToken, person)
+	if err != nil {
+		fmt.Println("Error adding user to ECAL App, continuing to next user...")
+		return err
+	}
+
 	// add the user to the STS VBCS app user repository.  If the user exists, check the manager to make sure that
 	// data is current and update if needed
-	err = addUserToSTS(config, client, accessToken, person)
+	err = addUserToVBCSApp("STS", config.StsUserEndpoint, config.VbcsUsername, config.VbcsPassword,
+		config.StsUserAddPayload, config.StsUpdateManagerPayload, config.StsUserRoleCode, config.StsManagerRoleCode,
+		client, accessToken, person)
 	if err != nil {
 		fmt.Println("Error adding user to STS App, continuing to next user...")
 		return err
@@ -178,30 +193,19 @@ func deleteUser(config Config, client *http.Client, accessToken string, person A
 		return errors.New(outputHTTPError("Deleting user from IDCS", err, res))
 	}
 
-	// get user from STS
-	queryString = "q=userEmail='" + person.UserID + "'"
-	req, _ = http.NewRequest("GET", config.StsUserEndpoint+"?"+queryString, nil)
-	req.SetBasicAuth(config.VbcsUsername, config.VbcsPassword)
-	res, err = client.Do(req)
-	if err != nil || res == nil || res.StatusCode != 200 {
-		return errors.New(outputHTTPError("Get STS user by email", err, res))
-	}
-	json, _ = ioutil.ReadAll(res.Body)
-	stsUserID := gjson.Get(string(json), "items.0.id")
-	if len(stsUserID.String()) < 1 {
-		return errors.New(outputHTTPError("Getting User ID from STS",
-			fmt.Errorf("User Email [%s] not found in STS when trying to delete user [%s]",
-				strings.TrimSpace(idcsUserID), person.DisplayName), res))
+	// delete user from ECAL app
+	err = deleteUserFromVBCSApp("ECAL", config.EcalUserEndpoint, config.VbcsUsername, config.VbcsPassword, client, accessToken, person)
+	if err != nil {
+		return err
 	}
 
-	// delete user from STS
-	req, _ = http.NewRequest("DELETE", config.StsUserEndpoint+"/"+stsUserID.String(), nil)
-	req.SetBasicAuth(config.VbcsUsername, config.VbcsPassword)
-	res, err = client.Do(req)
-	if err != nil || res == nil || (res.StatusCode != 200 && res.StatusCode != 204) {
-		return errors.New(outputHTTPError("Delete STS user", err, res))
+	// delete user from STS app
+	err = deleteUserFromVBCSApp("STS", config.StsUserEndpoint, config.VbcsUsername, config.VbcsPassword, client, accessToken, person)
+	if err != nil {
+		return err
 	}
 
+	// we so happy
 	return nil
 }
 
@@ -283,17 +287,18 @@ func addUserToIDCS(config Config, client *http.Client, accessToken string, perso
 }
 
 //
-// Try to add the user to the STS app.  For all new users, assume a role of "solution engineer" and a path of "None".
+// Try to add the user to a VBCS app.
 //
-func addUserToSTS(config Config, client *http.Client, accessToken string, person AriaServicePerson) error {
+func addUserToVBCSApp(appName string, endpoint string, username string, password string, addUserTemplate string,
+	replaceManagerTemplate string, userRole string, managerRole string, client *http.Client, accessToken string, person AriaServicePerson) error {
 	// first check to see if the user already exists by doing a search on their email in STS which is a
 	// unique attribute
 	queryString := "q=userEmail='" + person.UserID + "'"
-	req, _ := http.NewRequest("GET", config.StsUserEndpoint+"?"+queryString, nil)
-	req.SetBasicAuth(config.VbcsUsername, config.VbcsPassword)
+	req, _ := http.NewRequest("GET", endpoint+"?"+queryString, nil)
+	req.SetBasicAuth(username, password)
 	res, err := client.Do(req)
 	if err != nil || res == nil || res.StatusCode != 200 {
-		fmt.Println(outputHTTPError("Add User to STS -> Get user by email", err, res))
+		fmt.Println(outputHTTPError("Add User to "+appName+" -> Get user by email", err, res))
 		return err
 	}
 	defer res.Body.Close()
@@ -308,41 +313,77 @@ func addUserToSTS(config Config, client *http.Client, accessToken string, person
 		// this block handles the case where the user already exists and we check to see if the manager
 		// email needs to be updated
 		if managerID.String() != person.Manager {
-			payload := strings.ReplaceAll(config.StsUpdateManagerPayload, "%MANAGER%", person.Manager)
+			payload := strings.ReplaceAll(replaceManagerTemplate, "%MANAGER%", person.Manager)
 
-			req, _ = http.NewRequest("PATCH", config.StsUserEndpoint+"/"+personID.String(), strings.NewReader(payload))
-			req.SetBasicAuth(config.VbcsUsername, config.VbcsPassword)
+			req, _ = http.NewRequest("PATCH", endpoint+"/"+personID.String(), strings.NewReader(payload))
+			req.SetBasicAuth(username, password)
 			req.Header.Add("Content-Type", "application/json")
 			req.Header.Add("Content-Length", strconv.Itoa(len(payload)))
 			res, err := client.Do(req)
 			if err != nil || res == nil || (res.StatusCode != 200 && res.StatusCode != 409) {
-				fmt.Println(outputHTTPError("Add User to STS -> Update Manager", err, res))
+				fmt.Println(outputHTTPError("Add User to "+appName+" -> Update Manager", err, res))
 				return err
 			}
 		}
 	} else {
-		// this block handles the case where the user does not exist in STS and needs to be added
-		payload := strings.ReplaceAll(config.StsUserAddPayload, "%USERNAME%", person.UserID)
+		// this block handles the case where the user does not exist in VBCS and needs to be added
+		payload := strings.ReplaceAll(addUserTemplate, "%USERNAME%", person.UserID)
 		payload = strings.ReplaceAll(payload, "%FIRSTNAME%", person.FirstName)
 		payload = strings.ReplaceAll(payload, "%LASTNAME%", person.LastName)
 		payload = strings.ReplaceAll(payload, "%MANAGER%", person.Manager)
 		if person.NumberOfDirects > 0 {
-			payload = strings.ReplaceAll(payload, "%ROLE%", roleStsManager)
+			payload = strings.ReplaceAll(payload, "%ROLE%", managerRole)
 		} else {
-			payload = strings.ReplaceAll(payload, "%ROLE%", roleStsSolutionEngineer)
+			payload = strings.ReplaceAll(payload, "%ROLE%", userRole)
 		}
 
-		req, _ = http.NewRequest("POST", config.StsUserEndpoint, strings.NewReader(payload))
-		req.SetBasicAuth(config.VbcsUsername, config.VbcsPassword)
+		req, _ = http.NewRequest("POST", endpoint, strings.NewReader(payload))
+		req.SetBasicAuth(username, password)
 		req.Header.Add("Content-Type", "application/json")
 		req.Header.Add("Content-Length", strconv.Itoa(len(payload)))
 		res, err := client.Do(req)
 		if err != nil || res == nil || (res.StatusCode != 201 && res.StatusCode != 200) {
-			fmt.Println(outputHTTPError("Adding user to STS", err, res))
+			fmt.Println(outputHTTPError("Adding user to "+appName, err, res))
 			return err
 		}
 	}
 
+	return nil
+}
+
+//
+// Delete user from VBCS app.
+//
+func deleteUserFromVBCSApp(appName string, endpoint string, username string, password string,
+	client *http.Client, accessToken string, person AriaServicePerson) error {
+
+	// get user from VBCS app
+	queryString := "q=userEmail='" + person.UserID + "'"
+	req, _ := http.NewRequest("GET", endpoint+"?"+queryString, nil)
+	req.SetBasicAuth(username, password)
+	res, err := client.Do(req)
+	if err != nil || res == nil || res.StatusCode != 200 {
+		return errors.New(outputHTTPError("Get "+appName+" user by email", err, res))
+	}
+	defer res.Body.Close()
+
+	json, _ := ioutil.ReadAll(res.Body)
+	vbcsUserID := gjson.Get(string(json), "items.0.id")
+	if len(vbcsUserID.String()) < 1 {
+		return errors.New(outputHTTPError("Getting User ID from "+appName,
+			fmt.Errorf("User Email [%s] not found in "+appName+" when trying to delete user [%s]",
+				strings.TrimSpace(person.UserID), person.DisplayName), res))
+	}
+
+	// delete user from VBCS app
+	req, _ = http.NewRequest("DELETE", endpoint+"/"+vbcsUserID.String(), nil)
+	req.SetBasicAuth(username, password)
+	res, err = client.Do(req)
+	if err != nil || res == nil || (res.StatusCode != 200 && res.StatusCode != 204) {
+		return errors.New(outputHTTPError("Delete "+appName+" user", err, res))
+	}
+
+	// we so happy
 	return nil
 }
 

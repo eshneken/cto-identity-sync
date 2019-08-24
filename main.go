@@ -29,11 +29,6 @@ type Config struct {
 	UserGroupNames            string
 	VbcsUsername              string
 	VbcsPassword              string
-	StsUserEndpoint           string
-	StsUserAddPayload         string
-	StsUpdateManagerPayload   string
-	StsUserRoleCode           string
-	StsManagerRoleCode        string
 	EcalUserEndpoint          string
 	EcalUserAddPayload        string
 	EcalUpdateManagerPayload  string
@@ -148,16 +143,6 @@ func synchronizeUser(config Config, client *http.Client, accessToken string, per
 		return err
 	}
 
-	// add the user to the STS VBCS app user repository.  If the user exists, check the manager to make sure that
-	// data is current and update if needed
-	err = addUserToVBCSApp("STS", config.StsUserEndpoint, config.VbcsUsername, config.VbcsPassword,
-		config.StsUserAddPayload, config.StsUpdateManagerPayload, config.StsUserRoleCode, config.StsManagerRoleCode,
-		client, accessToken, person)
-	if err != nil {
-		fmt.Println("Error adding user to STS App, continuing to next user...")
-		return err
-	}
-
 	return nil
 }
 
@@ -195,12 +180,6 @@ func deleteUser(config Config, client *http.Client, accessToken string, person A
 
 	// delete user from ECAL app
 	err = deleteUserFromVBCSApp("ECAL", config.EcalUserEndpoint, config.VbcsUsername, config.VbcsPassword, client, accessToken, person)
-	if err != nil {
-		return err
-	}
-
-	// delete user from STS app
-	err = deleteUserFromVBCSApp("STS", config.StsUserEndpoint, config.VbcsUsername, config.VbcsPassword, client, accessToken, person)
 	if err != nil {
 		return err
 	}

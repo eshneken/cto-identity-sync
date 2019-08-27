@@ -19,7 +19,12 @@ The app requires a file named *config.json* to be present the same directory fro
     "EcalUserAddPayload": "{\"userEmail\":\"%USERNAME%\",\"firstName\":\"%FIRSTNAME%\",\"lastName\":\"%LASTNAME%\",\"manager\":\"%MANAGER%\",\"roleName\":%ROLE%}",
     "EcalUpdateManagerPayload": "{\"manager\": \"%MANAGER%\"}",
     "EcalUserRoleCode": "{{generated_id_of_user_role_in_ecal_roletype_business_object}}",
-    "EcalManagerRoleCode": "{{primary_id_of_manager_role_in_ecal_roletype_business_object}}"
+    "EcalManagerRoleCode": "{{primary_id_of_manager_role_in_ecal_roletype_business_object}}",
+    "OceBaseURL": "https://{{your_instance_name}}.cec.ocp.oraclecloud.com",
+    "OceUsername": "{{serviceaccount_username}}",
+    "OcePassword": "{{serviceaccount_password}}",
+    "OceArtifactsFolderID": "{{OCE id of root artifacts folder, get it from looking at URL in OCE web view}}",
+    "OceAddUserPayload": "{\"userID\":\"%USERNAME%\",\"role\":\"downloader\"}"
 }
 ```
 

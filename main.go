@@ -34,6 +34,11 @@ type Config struct {
 	EcalUpdateManagerPayload  string
 	EcalUserRoleCode          string
 	EcalManagerRoleCode       string
+	OceBaseURL                string
+	OceUsername               string
+	OcePassword               string
+	OceArtifactsFolderID      string
+	OceAddUserPayload         string
 }
 
 // AriaServicePerson represents an individual returned from the custom Aria export service
@@ -76,7 +81,7 @@ func main() {
 		fmt.Printf("*** Processing user [%d/%d] -> %s\n", i+1, len(peopleList.Items), person.DisplayName)
 
 		// REMOVE AFTER TESTING:  Don't touch these accounts for now
-		if person.LastName == "Kidwell" || person.LastName == "Corcoran" || person.LastName == "Shnekendorf" || person.LastName == "Kundu" || person.LastName == "Rauner" {
+		if person.LastName == "Kidwell" || person.LastName == "Sab" || person.LastName == "Shnekendorf" || person.LastName == "Kundu" || person.LastName == "Malli" {
 			fmt.Println("Skipping user: " + person.DisplayName)
 			continue
 		}
@@ -95,7 +100,7 @@ func main() {
 		}
 
 		// REMOVE AFTER TESTING:  Stop at some fixed count
-		if i >= 24 {
+		if i >= 3 {
 			fmt.Println("Premature stop for testing!!!")
 			fmt.Printf("*** Sucessfully processed [%d/%d] Users\n", usersSucessfullyProcessed, len(peopleList.Items))
 			return
@@ -137,9 +142,17 @@ func synchronizeUser(config Config, client *http.Client, accessToken string, per
 	// data is current and update if needed
 	err = addUserToVBCSApp("ECAL", config.EcalUserEndpoint, config.VbcsUsername, config.VbcsPassword,
 		config.EcalUserAddPayload, config.EcalUpdateManagerPayload, config.EcalUserRoleCode, config.EcalManagerRoleCode,
-		client, accessToken, person)
+		client, person)
 	if err != nil {
 		fmt.Println("Error adding user to ECAL App, continuing to next user...")
+		return err
+	}
+
+	// map the user as a downloader of the artifacts folder in OCE
+	err = addUserToOCE(config.OceBaseURL, config.OceUsername, config.OcePassword, config.OceArtifactsFolderID,
+		config.OceAddUserPayload, client, person)
+	if err != nil {
+		fmt.Println("Error adding user to OCE artifacts folder, continuing to next user...")
 		return err
 	}
 
@@ -181,6 +194,14 @@ func deleteUser(config Config, client *http.Client, accessToken string, person A
 	// delete user from ECAL app
 	err = deleteUserFromVBCSApp("ECAL", config.EcalUserEndpoint, config.VbcsUsername, config.VbcsPassword, client, accessToken, person)
 	if err != nil {
+		return err
+	}
+
+	// unmap the user as a downloader of the artifacts folder in OCE
+	err = deleteUserFromOCE(config.OceBaseURL, config.OceUsername, config.OcePassword, config.OceArtifactsFolderID,
+		config.OceAddUserPayload, client, person)
+	if err != nil {
+		fmt.Println("Error unmapping user from OCE artifacts folder, continuing to next user...")
 		return err
 	}
 
@@ -269,7 +290,7 @@ func addUserToIDCS(config Config, client *http.Client, accessToken string, perso
 // Try to add the user to a VBCS app.
 //
 func addUserToVBCSApp(appName string, endpoint string, username string, password string, addUserTemplate string,
-	replaceManagerTemplate string, userRole string, managerRole string, client *http.Client, accessToken string, person AriaServicePerson) error {
+	replaceManagerTemplate string, userRole string, managerRole string, client *http.Client, person AriaServicePerson) error {
 	// first check to see if the user already exists by doing a search on their email in STS which is a
 	// unique attribute
 	queryString := "q=userEmail='" + person.UserID + "'"
@@ -328,6 +349,104 @@ func addUserToVBCSApp(appName string, endpoint string, username string, password
 	}
 
 	return nil
+}
+
+//
+// Try to add the user to an OCE content folder as a downloader
+//
+func addUserToOCE(endpoint string, username string, password string, folderID string, addUserPayload string,
+	client *http.Client, person AriaServicePerson) error {
+
+	// sync profile data
+	req, _ := http.NewRequest("POST", endpoint+"/documents/web?IdcService=SYNC_USERS_AND_ATTRIBUTES&suppressHttpErrorCodes=1", nil)
+	req.SetBasicAuth(username, password)
+	res, err := client.Do(req)
+	if err != nil || res == nil || res.StatusCode != 200 {
+		fmt.Println(outputHTTPError("Add User to OCE -> Sync Profile Data", err, res))
+		return err
+	}
+	defer res.Body.Close()
+
+	// get the OCE user id by their email
+	queryString := "email=" + person.UserID
+	req, _ = http.NewRequest("GET", endpoint+"/documents/api/1.2/users/search/items?"+queryString, nil)
+	req.SetBasicAuth(username, password)
+	res, err = client.Do(req)
+	if err != nil || res == nil || res.StatusCode != 200 {
+		fmt.Println(outputHTTPError("Add User to OCE -> Get user by email", err, res))
+		return err
+	}
+
+	// get the internal person ID from VBCS and their manager email
+	json, _ := ioutil.ReadAll(res.Body)
+	personID := gjson.Get(string(json), "items.0.id")
+	if len(personID.String()) < 1 {
+		err = errors.New("No ID returned; OCE not synced with this user")
+		fmt.Println(outputHTTPError("Add User to OCE -> Get OCE id from email ["+person.UserID+"]", err, res))
+		return err
+	}
+
+	// Add person as downloader for the Artifacts folder
+	payload := strings.ReplaceAll(addUserPayload, "%USERNAME%", personID.String())
+	req, _ = http.NewRequest("POST", endpoint+"/documents/api/1.2/shares/"+folderID, strings.NewReader(payload))
+	req.SetBasicAuth(username, password)
+	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("Content-Length", strconv.Itoa(len(payload)))
+	res, err = client.Do(req)
+	if err != nil || res == nil {
+		fmt.Println(outputHTTPError("Add User to OCE -> Get user by email", err, res))
+		return err
+	}
+
+	// check the error code.  If the user has already been added to the folder then squelch the error and continue on
+	if res.StatusCode != 200 {
+		returnBody, _ := ioutil.ReadAll(res.Body)
+		errorKey := gjson.Get(string(returnBody), "errorKey")
+		err = errors.New(string(returnBody))
+		if !strings.HasPrefix(errorKey.String(), "!csFolderAlreadyShared") {
+			fmt.Println(outputHTTPError("Add User to OCE -> Add user as downloader to artifacts folder",
+				err, res))
+			return err
+		}
+	}
+	return nil // me so happy
+}
+
+//
+// Remove user as downloader from OCE folder
+//
+func deleteUserFromOCE(endpoint string, username string, password string, folderID string, deleteUserPayload string,
+	client *http.Client, person AriaServicePerson) error {
+
+	// get the OCE user id by their email
+	queryString := "email=" + person.UserID
+	req, _ := http.NewRequest("GET", endpoint+"/documents/api/1.2/users/search/items?"+queryString, nil)
+	req.SetBasicAuth(username, password)
+	res, err := client.Do(req)
+	if err != nil || res == nil || res.StatusCode != 200 {
+		fmt.Println(outputHTTPError("Delete user from OCE -> Get user by email", err, res))
+		return err
+	}
+	defer res.Body.Close()
+
+	// get the internal person ID from VBCS and their manager email
+	json, _ := ioutil.ReadAll(res.Body)
+	personID := gjson.Get(string(json), "items.0.id")
+	//println("got userId=" + personID.String())
+
+	// Add person as downloader for the Artifacts folder
+	payload := strings.ReplaceAll(deleteUserPayload, "%USERNAME%", personID.String())
+	req, _ = http.NewRequest("DELETE", endpoint+"/documents/api/1.2/shares/"+folderID+"/user", strings.NewReader(payload))
+	req.SetBasicAuth(username, password)
+	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("Content-Length", strconv.Itoa(len(payload)))
+	res, err = client.Do(req)
+	if err != nil || res == nil || res.StatusCode != 200 {
+		fmt.Println(outputHTTPError("Delete user from OCE -> Remove user as downloader to artifacts folder", err, res))
+		return err
+	}
+
+	return nil // me so happy
 }
 
 //

@@ -75,10 +75,14 @@ func main() {
 	fmt.Println("Authenticating to IDCS")
 	accessToken := getIDCSAccessToken(config, client)
 
-	// This it the main control loop.  For each person returned from the service
+	//REMOVE after testing
+	BREAKCOUNT := 8
+
+	// Loop through all users and load/unload to IDCS/VBCS
 	usersSucessfullyProcessed := 0
+	println("*** Loop 1/2:  Synchronize with IDCS & VBCS")
 	for i, person := range peopleList.Items {
-		fmt.Printf("*** Processing user [%d/%d] -> %s\n", i+1, len(peopleList.Items), person.DisplayName)
+		fmt.Printf("* Processing user [%d/%d] -> %s\n", i+1, len(peopleList.Items), person.DisplayName)
 
 		// REMOVE AFTER TESTING:  Don't touch these accounts for now
 		if person.LastName == "Kidwell" || person.LastName == "Sab" || person.LastName == "Shnekendorf" || person.LastName == "Kundu" || person.LastName == "Malli" {
@@ -89,9 +93,9 @@ func main() {
 		// if we made it this far then the user has been fully added to IDCS, groups, and VBCS apps so count the success
 		err := errors.New("")
 		if deleteFlagSet {
-			err = deleteUser(config, client, accessToken, person)
+			err = deleteIDCSVBCSUser(config, client, accessToken, person)
 		} else {
-			err = synchronizeUser(config, client, accessToken, person)
+			err = addIDCSVBCSUser(config, client, accessToken, person)
 		}
 		if err != nil {
 			fmt.Println(err.Error())
@@ -100,20 +104,76 @@ func main() {
 		}
 
 		// REMOVE AFTER TESTING:  Stop at some fixed count
-		if i >= 6 {
+		if i >= BREAKCOUNT {
 			fmt.Println("Premature stop for testing!!!")
-			fmt.Printf("*** Sucessfully processed [%d/%d] Users\n", usersSucessfullyProcessed, len(peopleList.Items))
-			return
+			break
 		}
 	}
-	fmt.Printf("*** Sucessfully processed [%d/%d] Users\n", usersSucessfullyProcessed, len(peopleList.Items))
+	fmt.Printf("*** Sucessfully processed [%d/%d] Users for IDCS/VBCS\n", usersSucessfullyProcessed, len(peopleList.Items))
+
+	// sync OEC to IDCS
+	println("*** Synchronizing IDCS to OEC in prep for second loop")
+	syncErr := syncOCEProfileData(config.OceBaseURL, config.OceUsername, config.OcePassword, client)
+	if syncErr != nil {
+		println("Can't sync OCE profile repository so no point in trying to load/unload OCE.  EXITING....")
+		os.Exit(1)
+	}
+
+	// loop through all users and load/unload into OCE
+	usersSucessfullyProcessed = 0
+	println("*** Loop 2/2:  Synchronize with OEC")
+	for i, person := range peopleList.Items {
+		fmt.Printf("* Processing user [%d/%d] -> %s\n", i+1, len(peopleList.Items), person.DisplayName)
+
+		// REMOVE AFTER TESTING:  Don't touch these accounts for now
+		if person.LastName == "Kidwell" || person.LastName == "Sab" || person.LastName == "Shnekendorf" || person.LastName == "Kundu" || person.LastName == "Malli" {
+			fmt.Println("Skipping user: " + person.DisplayName)
+			continue
+		}
+
+		err := errors.New("")
+		if deleteFlagSet {
+			err = deleteOCEUser(config, client, accessToken, person)
+		} else {
+			err = addOCEUser(config, client, accessToken, person)
+		}
+		if err != nil {
+			fmt.Println(err.Error())
+		} else {
+			usersSucessfullyProcessed++
+		}
+
+		// REMOVE AFTER TESTING:  Stop at some fixed count
+		if i >= BREAKCOUNT {
+			fmt.Println("Premature stop for testing!!!")
+			break
+		}
+
+	}
+	fmt.Printf("*** Sucessfully processed [%d/%d] Users for OCE\n", usersSucessfullyProcessed, len(peopleList.Items))
+
 }
 
 //
-// Synchronize a single user to IDCS/VBCS.  If a condition occurs that prevents this user from being added
+// Add a single user to IDCS/VBCS.  If a condition occurs that prevents this user from being added
 // then return an error so that the calling function can continue on to the next user.
 //
-func synchronizeUser(config Config, client *http.Client, accessToken string, person AriaServicePerson) error {
+func addOCEUser(config Config, client *http.Client, accessToken string, person AriaServicePerson) error {
+	err := addUserToOCE(config.OceBaseURL, config.OceUsername, config.OcePassword, config.OceArtifactsFolderID,
+		config.OceAddUserPayload, client, person)
+	if err != nil {
+		fmt.Println("Error adding user to OCE artifacts folder, continuing to next user...")
+		return err
+	}
+
+	return nil
+}
+
+//
+// Add a single user to IDCS/VBCS.  If a condition occurs that prevents this user from being added
+// then return an error so that the calling function can continue on to the next user.
+//
+func addIDCSVBCSUser(config Config, client *http.Client, accessToken string, person AriaServicePerson) error {
 	// Convert manager DN to email address
 	person.Manager = convertManagerDnToEmail(person.Manager)
 
@@ -148,14 +208,23 @@ func synchronizeUser(config Config, client *http.Client, accessToken string, per
 		return err
 	}
 
-	// map the user as a downloader of the artifacts folder in OCE
-	err = addUserToOCE(config.OceBaseURL, config.OceUsername, config.OcePassword, config.OceArtifactsFolderID,
+	return nil
+}
+
+//
+// Delete a single user from OEC.  If a condition occurs that prevents this user from being deleting
+// then return an error so that the calling function can continue on to the next user.
+//
+func deleteOCEUser(config Config, client *http.Client, accessToken string, person AriaServicePerson) error {
+
+	err := deleteUserFromOCE(config.OceBaseURL, config.OceUsername, config.OcePassword, config.OceArtifactsFolderID,
 		config.OceAddUserPayload, client, person)
 	if err != nil {
-		fmt.Println("Error adding user to OCE artifacts folder, continuing to next user...")
+		fmt.Println("Error unmapping user from OCE artifacts folder, continuing to next user...")
 		return err
 	}
 
+	// we so happy
 	return nil
 }
 
@@ -163,7 +232,7 @@ func synchronizeUser(config Config, client *http.Client, accessToken string, per
 // Delete a single user from IDCS/VBCS.  If a condition occurs that prevents this user from being deleting
 // then return an error so that the calling function can continue on to the next user.
 //
-func deleteUser(config Config, client *http.Client, accessToken string, person AriaServicePerson) error {
+func deleteIDCSVBCSUser(config Config, client *http.Client, accessToken string, person AriaServicePerson) error {
 	// get user ID from IDCS
 	queryString := url.QueryEscape("userName eq \"" + strings.TrimSpace(person.UserID) + "\"")
 	req, _ := http.NewRequest("GET", config.IdcsBaseURL+"/admin/v1/Users?filter="+queryString, nil)
@@ -194,14 +263,6 @@ func deleteUser(config Config, client *http.Client, accessToken string, person A
 	// delete user from ECAL app
 	err = deleteUserFromVBCSApp("ECAL", config.EcalUserEndpoint, config.VbcsUsername, config.VbcsPassword, client, accessToken, person)
 	if err != nil {
-		return err
-	}
-
-	// unmap the user as a downloader of the artifacts folder in OCE
-	err = deleteUserFromOCE(config.OceBaseURL, config.OceUsername, config.OcePassword, config.OceArtifactsFolderID,
-		config.OceAddUserPayload, client, person)
-	if err != nil {
-		fmt.Println("Error unmapping user from OCE artifacts folder, continuing to next user...")
 		return err
 	}
 
@@ -352,31 +413,39 @@ func addUserToVBCSApp(appName string, endpoint string, username string, password
 }
 
 //
-// Try to add the user to an OCE content folder as a downloader
+// Synchronize OEC user/profile data with IDCS.  This is a costly operation so should only be executed once
+// after all user changes have been made in IDCS but before any activity can be initiated for user mapping in
+// OCE
 //
-func addUserToOCE(endpoint string, username string, password string, folderID string, addUserPayload string,
-	client *http.Client, person AriaServicePerson) error {
-
-	// sync profile data
+func syncOCEProfileData(endpoint string, username string, password string, client *http.Client) error {
 	req, _ := http.NewRequest("POST", endpoint+"/documents/integration/ecal?IdcService=SYNC_USERS_AND_ATTRIBUTES", nil)
 	req.SetBasicAuth(username, password)
 	req.Header.Add("Content-Type", "application/json")
 	res, err := client.Do(req)
 	if err != nil || res == nil || res.StatusCode != 200 {
-		fmt.Println(outputHTTPError("Add User to OCE -> Sync Profile Data(1)", err, res))
+		fmt.Println(outputHTTPError("Sync Profile Data", err, res))
 		return err
 	}
 	defer res.Body.Close()
+	return nil // we so happy
+}
+
+//
+// Try to add the user to an OCE content folder as a downloader
+//
+func addUserToOCE(endpoint string, username string, password string, folderID string, addUserPayload string,
+	client *http.Client, person AriaServicePerson) error {
 
 	// get the OCE user id by their email
 	queryString := "email=" + person.UserID
-	req, _ = http.NewRequest("GET", endpoint+"/documents/api/1.2/users/search/items?"+queryString, nil)
+	req, _ := http.NewRequest("GET", endpoint+"/documents/api/1.2/users/search/items?"+queryString, nil)
 	req.SetBasicAuth(username, password)
-	res, err = client.Do(req)
+	res, err := client.Do(req)
 	if err != nil || res == nil || res.StatusCode != 200 {
 		fmt.Println(outputHTTPError("Add User to OCE -> Get user by email", err, res))
 		return err
 	}
+	defer res.Body.Close()
 
 	// get the internal person ID from OCE;  if no id return throw an error
 	json, _ := ioutil.ReadAll(res.Body)
@@ -433,7 +502,6 @@ func deleteUserFromOCE(endpoint string, username string, password string, folder
 	// get the internal person ID from VBCS and their manager email
 	json, _ := ioutil.ReadAll(res.Body)
 	personID := gjson.Get(string(json), "items.0.id")
-	//println("got userId=" + personID.String())
 
 	// Add person as downloader for the Artifacts folder
 	payload := strings.ReplaceAll(deleteUserPayload, "%USERNAME%", personID.String())
@@ -442,11 +510,24 @@ func deleteUserFromOCE(endpoint string, username string, password string, folder
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Content-Length", strconv.Itoa(len(payload)))
 	res, err = client.Do(req)
-	if err != nil || res == nil || res.StatusCode != 200 {
+	if err != nil || res == nil {
 		fmt.Println(outputHTTPError("Delete user from OCE -> Remove user as downloader to artifacts folder", err, res))
 		return err
 	}
 
+	// check the error code.  If the user has already been removed from the folder then squelch the error and continue on
+	if res.StatusCode != 200 {
+		returnBody, _ := ioutil.ReadAll(res.Body)
+		errorKey := gjson.Get(string(returnBody), "errorKey")
+		err = errors.New(string(returnBody))
+		if !strings.HasPrefix(errorKey.String(), "!csUserHasNotBeenShared") {
+			fmt.Println(outputHTTPError("Remove user from OCE -> Remove user as downloader to artifacts folder",
+				err, res))
+			return err
+		}
+
+		println("User [" + person.DisplayName + "] already unshared from OEC folder")
+	}
 	return nil // me so happy
 }
 

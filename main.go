@@ -701,8 +701,8 @@ func deleteOnThisRun() bool {
 	if len(os.Args) < 2 || os.Args[1] == "-h" || os.Args[1] == "--help" {
 		fmt.Printf("Usage: %s [--help || --add || --delete]\n", os.Args[0])
 		fmt.Println("--help:  Prints this message")
-		fmt.Println("--add:  Synchronizes users from Aria service to IDCS/VBCS apps")
-		fmt.Println("--delete:  Removes users returned from Aria service from IDCS/VBCS apps")
+		fmt.Println("--add:  Synchronizes users from Aria service to IDCS/VBCS/OCE apps")
+		fmt.Println("--delete:  Removes users returned from Aria service from IDCS/VBCS/OCE apps")
 		os.Exit(1)
 	}
 

@@ -35,8 +35,8 @@ This utility supports both synchronizing from the source to IDCS/VBCS as well as
 cto-identity-sync [--help || --add || --delete]
 
 --help:     Prints this message
---add:      Synchronizes users from Aria service to IDCS/VBCS apps
---delete:   Removes users returned from Aria service from IDCS/VBCS apps
+--add:      Synchronizes users from Aria service to IDCS/VBCS/OCE apps
+--delete:   Removes users returned from Aria service from IDCS/VBCS/OCE apps
 ```
 
 ## Principles for API Usage

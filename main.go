@@ -100,7 +100,7 @@ func main() {
 		}
 
 		// REMOVE AFTER TESTING:  Stop at some fixed count
-		if i >= 3 {
+		if i >= 6 {
 			fmt.Println("Premature stop for testing!!!")
 			fmt.Printf("*** Sucessfully processed [%d/%d] Users\n", usersSucessfullyProcessed, len(peopleList.Items))
 			return
@@ -358,11 +358,12 @@ func addUserToOCE(endpoint string, username string, password string, folderID st
 	client *http.Client, person AriaServicePerson) error {
 
 	// sync profile data
-	req, _ := http.NewRequest("POST", endpoint+"/documents/web?IdcService=SYNC_USERS_AND_ATTRIBUTES&suppressHttpErrorCodes=1", nil)
+	req, _ := http.NewRequest("POST", endpoint+"/documents/integration/ecal?IdcService=SYNC_USERS_AND_ATTRIBUTES", nil)
 	req.SetBasicAuth(username, password)
+	req.Header.Add("Content-Type", "application/json")
 	res, err := client.Do(req)
 	if err != nil || res == nil || res.StatusCode != 200 {
-		fmt.Println(outputHTTPError("Add User to OCE -> Sync Profile Data", err, res))
+		fmt.Println(outputHTTPError("Add User to OCE -> Sync Profile Data(1)", err, res))
 		return err
 	}
 	defer res.Body.Close()
@@ -377,7 +378,7 @@ func addUserToOCE(endpoint string, username string, password string, folderID st
 		return err
 	}
 
-	// get the internal person ID from VBCS and their manager email
+	// get the internal person ID from OCE;  if no id return throw an error
 	json, _ := ioutil.ReadAll(res.Body)
 	personID := gjson.Get(string(json), "items.0.id")
 	if len(personID.String()) < 1 {
@@ -493,6 +494,35 @@ func getIDCSAccessToken(config Config, client *http.Client) string {
 	data := url.Values{}
 	data.Set("grant_type", "client_credentials")
 	data.Set("scope", "urn:opc:idm:__myscopes__")
+
+	req, _ := http.NewRequest("POST", config.IdcsBaseURL+"/oauth2/v1/token", strings.NewReader(data.Encode()))
+	req.SetBasicAuth(config.IdcsClientID, config.IdcsClientSecret)
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Content-Length", strconv.Itoa(len(data.Encode())))
+
+	res, err := client.Do(req)
+	if err != nil || res == nil || res.StatusCode != 200 {
+		panic(outputHTTPError("Getting IDCS bearer token", err, res))
+	}
+	defer res.Body.Close()
+
+	json, _ := ioutil.ReadAll(res.Body)
+	accessToken := gjson.Get(string(json), "access_token")
+	if len(accessToken.String()) < 1 {
+		panic("IDCS bearer token not retrieved")
+	}
+
+	return accessToken.String()
+}
+
+//
+// Authenticate to IDCS and retrieve OAuth2 bearer token that will be used for this session to communicate
+// with OCE.  Any errors cause us to panic here since we can't proceed further
+//
+func getOCEAccessToken(config Config, client *http.Client) string {
+	data := url.Values{}
+	data.Set("grant_type", "client_credentials")
+	data.Set("scope", "urn:opc:cec:all ")
 
 	req, _ := http.NewRequest("POST", config.IdcsBaseURL+"/oauth2/v1/token", strings.NewReader(data.Encode()))
 	req.SetBasicAuth(config.IdcsClientID, config.IdcsClientSecret)

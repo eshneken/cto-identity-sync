@@ -76,7 +76,7 @@ func main() {
 	accessToken := getIDCSAccessToken(config, client)
 
 	//REMOVE after testing
-	BREAKCOUNT := 8
+	BREAKCOUNT := 1
 
 	// Loop through all users and load/unload to IDCS/VBCS
 	usersSucessfullyProcessed := 0
@@ -320,31 +320,49 @@ func addUserToIDCSGroups(config Config, client *http.Client, accessToken string,
 }
 
 //
-// Add the user to IDCS.  If they already exist a status of 409 (user already exists) will be
-// returned which is fine and we return an empty id.  This way we will avoid first doing a lookup before attempting an add
+// Add the user to IDCS.  First check to see if they are already there and if they are then return their IDCS user ID
+// If not, add them and return their IDCS user ID.  The IDCS userid will be used down the control flow to add them to groups
 //
 func addUserToIDCS(config Config, client *http.Client, accessToken string, person AriaServicePerson) (string, error) {
-	payload := strings.ReplaceAll(config.IdcsCreateNewUserPayload, "%USERNAME%", person.UserID)
-	payload = strings.ReplaceAll(payload, "%FIRSTNAME%", person.FirstName)
-	payload = strings.ReplaceAll(payload, "%LASTNAME%", person.LastName)
-
-	req, _ := http.NewRequest("POST", config.IdcsBaseURL+"/admin/v1/Users", strings.NewReader(payload))
+	// get user ID from IDCS
+	queryString := url.QueryEscape("userName eq \"" + strings.TrimSpace(person.UserID) + "\"")
+	req, _ := http.NewRequest("GET", config.IdcsBaseURL+"/admin/v1/Users?filter="+queryString, nil)
 	req.Header.Add("Authorization", "Bearer "+accessToken)
-	req.Header.Add("Content-Type", "application/json")
-	req.Header.Add("Content-Length", strconv.Itoa(len(payload)))
 	res, err := client.Do(req)
-	if err != nil || res == nil || res.StatusCode != 201 {
-		// 409 is expected if user already exists, don't throw an error
-		if res.StatusCode != 409 {
-			fmt.Println(outputHTTPError("Adding user to IDCS", err, res))
-			return "", err
-		}
+	if err != nil || res == nil || res.StatusCode != 200 {
+		return "", errors.New(outputHTTPError("Getting User ID from IDCS", err, res))
 	}
 	defer res.Body.Close()
 
 	json, _ := ioutil.ReadAll(res.Body)
-	result := gjson.Get(string(json), "id")
-	return result.String(), nil
+	result := gjson.Get(string(json), "Resources.0.id")
+	idcsUserID := result.String()
+
+	if len(idcsUserID) < 1 {
+		payload := strings.ReplaceAll(config.IdcsCreateNewUserPayload, "%USERNAME%", person.UserID)
+		payload = strings.ReplaceAll(payload, "%FIRSTNAME%", person.FirstName)
+		payload = strings.ReplaceAll(payload, "%LASTNAME%", person.LastName)
+
+		req, _ = http.NewRequest("POST", config.IdcsBaseURL+"/admin/v1/Users", strings.NewReader(payload))
+		req.Header.Add("Authorization", "Bearer "+accessToken)
+		req.Header.Add("Content-Type", "application/json")
+		req.Header.Add("Content-Length", strconv.Itoa(len(payload)))
+		res, err = client.Do(req)
+		if err != nil || res == nil || res.StatusCode != 201 {
+			// 409 is expected if user already exists, don't throw an error
+			if res.StatusCode != 409 {
+				fmt.Println(outputHTTPError("Adding user to IDCS", err, res))
+				return "", err
+			}
+		}
+		defer res.Body.Close()
+
+		json, _ = ioutil.ReadAll(res.Body)
+		result = gjson.Get(string(json), "id")
+		idcsUserID = result.String()
+	}
+
+	return idcsUserID, nil
 }
 
 //
@@ -352,7 +370,7 @@ func addUserToIDCS(config Config, client *http.Client, accessToken string, perso
 //
 func addUserToVBCSApp(appName string, endpoint string, username string, password string, addUserTemplate string,
 	replaceManagerTemplate string, userRole string, managerRole string, client *http.Client, person AriaServicePerson) error {
-	// first check to see if the user already exists by doing a search on their email in STS which is a
+	// first check to see if the user already exists by doing a search on their email in VBCS which is a
 	// unique attribute
 	queryString := "q=userEmail='" + person.UserID + "'"
 	req, _ := http.NewRequest("GET", endpoint+"?"+queryString, nil)

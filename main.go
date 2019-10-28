@@ -13,6 +13,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/tidwall/gjson"
 )
@@ -67,7 +68,7 @@ func main() {
 	client := &http.Client{}
 
 	// retrieve all person objects from bespoke Aria service
-	fmt.Println("Calling Aria service to retrieve SE org")
+	fmt.Println("Calling Aria service to retrieve SE org (" + time.Now().String() + ")")
 	peopleList := getPeopleFromAria(config, client)
 	fmt.Printf("Retrieved [%d] person entries from Aria Service\n", len(peopleList.Items))
 
@@ -115,7 +116,7 @@ func main() {
 			}
 		*/
 	}
-	fmt.Printf("*** Sucessfully processed [%d/%d] Users for IDCS/VBCS\n", usersSucessfullyProcessed, len(peopleList.Items))
+	fmt.Printf("*** Sucessfully processed [%d/%d] Users for IDCS/VBCS (%s) \n", usersSucessfullyProcessed, len(peopleList.Items), time.Now().String())
 
 	// sync OEC to IDCS
 	println("*** Synchronizing IDCS to OEC in prep for second loop")
@@ -162,7 +163,7 @@ func main() {
 		*/
 
 	}
-	fmt.Printf("*** Sucessfully processed [%d/%d] Users for OCE\n", usersSucessfullyProcessed, len(peopleList.Items))
+	fmt.Printf("*** Sucessfully processed [%d/%d] Users for OCE (%s)\n", usersSucessfullyProcessed, len(peopleList.Items), time.Now().String())
 
 }
 

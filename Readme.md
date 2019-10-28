@@ -56,7 +56,7 @@ The following steps can be followed to build this service on Oracle Cloud Infras
 1. Open the opc user's crontab
     1. crontab -e
 1. Add a cron job to run the identity sync tool once a day at 4am
-    1. 0 4 * * * cd /home/opc/cto-identity-sync/;./cto-identity-sync --add >> /home/opc/identity.out
+    1. 0 4 * * * cd /home/opc/cto-identity-sync/;./cto-identity-sync --add > /home/opc/identity.out
 
 
 ## Principles for API Usage

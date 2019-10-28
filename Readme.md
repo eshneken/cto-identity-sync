@@ -11,8 +11,8 @@ The app requires a file named *config.json* to be present the same directory fro
     "IdcsCreateNewUserPayload": "{\"schemas\":[\"urn:ietf:params:scim:schemas:core:2.0:User\"],\"name\":{\"givenName\":\"%FIRSTNAME%\",\"familyName\":\"%LASTNAME%\"},\"active\":true,\"userName\":\"%USERNAME%\",\"emails\":[{\"value\":\"%USERNAME%\",\"type\":\"work\",\"primary\":true},{\"value\":\"%USERNAME%\",\"primary\":false,\"type\":\"recovery\", \"urn:ietf:params:scim:schemas:oracle:idcs:extension:user:User:isFederatedUser\": true}]}",
     "IdcsAddUserToGroupPayload": "{\"schemas\":[\"urn:ietf:params:scim:api:messages:2.0:PatchOp\"],\"Operations\":[{\"op\":\"add\",\"path\":\"members\",\"value\":[{\"value\":\"%USERID%\",\"type\":\"User\"}]}]}",
     "AriaServiceEndpointURL": "{{aria_service_endpoint}}",
-    "ManagerGroupNames": "STS_Managers,ECAL_Managers",
-    "UserGroupNames": "STS_Users,ECAL_Users",
+    "ManagerGroupNames": "Prod_ECAL_Managers,Prod_ECAL_Artifact_Downloaders,Prod_Analytics_ServiceViewers,Prod_STS_Managers",
+    "UserGroupNames": "Prod_ECAL_Users,Prod_ECAL_Artifact_Downloaders,Prod_STS_Users",
     "VbcsUsername": "{{serviceaccount_username}}",
     "VbcsPassword": "{{serviceaccount_password}}",
     "EcalUserEndpoint": "https://{{your_instance_name}}.integration.ocp.oraclecloud.com/ic/builder/design/ECAL/1.0/resources/data/User1",
@@ -53,6 +53,11 @@ The following steps can be followed to build this service on Oracle Cloud Infras
 1. Add a config.json file to the cto-identity-sync directory with the appropriate values
 1. Build the package
     1. sudo go build
+1. Increase the number of file descriptors
+    1. sudo vi /etc/security/limits.conf
+    1. Add the following lines to the end
+        1. * soft nofile 65536
+        1. * hard nofile 65536
 1. Open the opc user's crontab
     1. crontab -e
 1. Add a cron job to run the identity sync tool once a day at 4am

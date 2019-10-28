@@ -39,6 +39,26 @@ cto-identity-sync [--help || --add || --delete]
 --delete:   Removes users returned from Aria service from IDCS/VBCS/OCE apps
 ```
 
+## Building the service from code
+The following steps can be followed to build this service on Oracle Cloud Infrastructure (OCI):
+1. Create a VCN with all related resources and update default security list to allow ingress access for TCP/80 and TCP/443
+1. Create compute instance from "Oracle Developer" marketplace image
+1. SSH into instance and open ingress for TCP/80 in linux firewall
+    1. sudo firewall-cmd --zone=public --add-port=80/tcp --permanent
+    1. sudo firewall-cmd --reload
+1. Clone git repo (git clone {{this repo name}})
+    1. git clone https://github.com/eshneken/cto-identity-sync
+1. Download gjson dependency package 
+    1. sudo go get -u github.com/tidwall/gjson
+1. Add a config.json file to the cto-identity-sync directory with the appropriate values
+1. Build the package
+    1. sudo go build
+1. Open the opc user's crontab
+    1. crontab -e
+1. Add a cron job to run the identity sync tool once a day at 4am
+    1. 0 4 * * * cd /home/opc/cto-identity-sync/;./cto-identity-sync --add >> /home/opc/identity.out
+
+
 ## Principles for API Usage
 * Setting up IDCS with client application to retrieve JWT bearer tokens:  https://www.oracle.com/webfolder/technetwork/tutorials/obe/cloud/idcs/idcs_rest_1stcall_obe/rest_1stcall.html
  * Using IDCS APIs:

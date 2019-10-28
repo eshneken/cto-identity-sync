@@ -76,7 +76,7 @@ func main() {
 	accessToken := getIDCSAccessToken(config, client)
 
 	//REMOVE after testing
-	BREAKCOUNT := 1
+	//BREAKCOUNT := 1
 
 	// Loop through all users and load/unload to IDCS/VBCS
 	usersSucessfullyProcessed := 0
@@ -85,7 +85,11 @@ func main() {
 		fmt.Printf("* Processing user [%d/%d] -> %s\n", i+1, len(peopleList.Items), person.DisplayName)
 
 		// REMOVE AFTER TESTING:  Don't touch these accounts for now
-		if person.LastName == "Kidwell" || person.LastName == "Sab" || person.LastName == "Shnekendorf" || person.LastName == "Kundu" || person.LastName == "Malli" {
+		if person.LastName == "Kidwell" || person.LastName == "Sab" || person.LastName == "Shnekendorf" ||
+			person.LastName == "Kundu" || person.LastName == "Malli" || person.LastName == "Desai" ||
+			person.LastName == "Goodwin" || person.LastName == "Cyr" || person.LastName == "Hasavimath" ||
+			person.LastName == "Leela Krishna" || person.LastName == "Vasanta" || person.LastName == "Reddy" ||
+			person.LastName == "Glas" || person.LastName == "Shaik" || person.LastName == "Uppushetty" {
 			fmt.Println("Skipping user: " + person.DisplayName)
 			continue
 		}
@@ -104,10 +108,12 @@ func main() {
 		}
 
 		// REMOVE AFTER TESTING:  Stop at some fixed count
-		if i >= BREAKCOUNT {
-			fmt.Println("Premature stop for testing!!!")
-			break
-		}
+		/*
+			if i >= BREAKCOUNT {
+				fmt.Println("Premature stop for testing!!!")
+				break
+			}
+		*/
 	}
 	fmt.Printf("*** Sucessfully processed [%d/%d] Users for IDCS/VBCS\n", usersSucessfullyProcessed, len(peopleList.Items))
 
@@ -126,7 +132,11 @@ func main() {
 		fmt.Printf("* Processing user [%d/%d] -> %s\n", i+1, len(peopleList.Items), person.DisplayName)
 
 		// REMOVE AFTER TESTING:  Don't touch these accounts for now
-		if person.LastName == "Kidwell" || person.LastName == "Sab" || person.LastName == "Shnekendorf" || person.LastName == "Kundu" || person.LastName == "Malli" {
+		if person.LastName == "Kidwell" || person.LastName == "Sab" || person.LastName == "Shnekendorf" ||
+			person.LastName == "Kundu" || person.LastName == "Malli" || person.LastName == "Desai" ||
+			person.LastName == "Goodwin" || person.LastName == "Cyr" || person.LastName == "Hasavimath" ||
+			person.LastName == "Leela Krishna" || person.LastName == "Vasanta" || person.LastName == "Reddy" ||
+			person.LastName == "Glas" || person.LastName == "Shaik" || person.LastName == "Uppushetty" {
 			fmt.Println("Skipping user: " + person.DisplayName)
 			continue
 		}
@@ -144,10 +154,12 @@ func main() {
 		}
 
 		// REMOVE AFTER TESTING:  Stop at some fixed count
-		if i >= BREAKCOUNT {
-			fmt.Println("Premature stop for testing!!!")
-			break
-		}
+		/*
+			if i >= BREAKCOUNT {
+				fmt.Println("Premature stop for testing!!!")
+				break
+			}
+		*/
 
 	}
 	fmt.Printf("*** Sucessfully processed [%d/%d] Users for OCE\n", usersSucessfullyProcessed, len(peopleList.Items))

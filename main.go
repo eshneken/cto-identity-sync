@@ -77,7 +77,7 @@ func main() {
 	accessToken := getIDCSAccessToken(config, client)
 
 	//REMOVE after testing
-	//BREAKCOUNT := 1
+	BREAKCOUNT := 1
 
 	// Loop through all users and load/unload to IDCS/VBCS
 	usersSucessfullyProcessed := 0
@@ -109,12 +109,12 @@ func main() {
 		}
 
 		// REMOVE AFTER TESTING:  Stop at some fixed count
-		/*
-			if i >= BREAKCOUNT {
-				fmt.Println("Premature stop for testing!!!")
-				break
-			}
-		*/
+
+		if i >= BREAKCOUNT {
+			fmt.Println("Premature stop for testing!!!")
+			break
+		}
+
 	}
 	fmt.Printf("*** Sucessfully processed [%d/%d] Users for IDCS/VBCS (%s) \n", usersSucessfullyProcessed, len(peopleList.Items), time.Now().String())
 
@@ -155,12 +155,11 @@ func main() {
 		}
 
 		// REMOVE AFTER TESTING:  Stop at some fixed count
-		/*
-			if i >= BREAKCOUNT {
-				fmt.Println("Premature stop for testing!!!")
-				break
-			}
-		*/
+
+		if i >= BREAKCOUNT {
+			fmt.Println("Premature stop for testing!!!")
+			break
+		}
 
 	}
 	fmt.Printf("*** Sucessfully processed [%d/%d] Users for OCE (%s)\n", usersSucessfullyProcessed, len(peopleList.Items), time.Now().String())

@@ -57,18 +57,31 @@ type AriaServicePersonList struct {
 	Items []AriaServicePerson `json:"items"`
 }
 
+// ADD argument for add mode
+const ADD = "--add"
+
+// DELETE argument for delete mode
+const DELETE = "--delete"
+
+// CLEAN argument for clean mode
+const CLEAN = "--clean"
+
+// LIST argument for list mode
+const LIST = "--list"
+
 func main() {
+	println("Invocation Start: " + time.Now().String())
 	// read system configuration from config file
 	config := loadConfig("config.json")
 
 	// determine if we are synchronizing or deleting users for this run
-	deleteFlagSet := deleteOnThisRun()
+	runMode := invocationRunMode()
 
 	// create HTTP Client
 	client := &http.Client{}
 
 	// retrieve all person objects from bespoke Aria service
-	fmt.Println("Calling Aria service to retrieve SE org (" + time.Now().String() + ")")
+	fmt.Println("Calling Aria service to retrieve SE org")
 	peopleList := getPeopleFromAria(config, client)
 	fmt.Printf("Retrieved [%d] person entries from Aria Service\n", len(peopleList.Items))
 
@@ -77,93 +90,122 @@ func main() {
 	accessToken := getIDCSAccessToken(config, client)
 
 	//REMOVE after testing
-	BREAKCOUNT := 1
+	//BREAKCOUNT := 2
 
 	// Loop through all users and load/unload to IDCS/VBCS
 	usersSucessfullyProcessed := 0
-	println("*** Loop 1/2:  Synchronize with IDCS & VBCS")
-	for i, person := range peopleList.Items {
-		fmt.Printf("* Processing user [%d/%d] -> %s\n", i+1, len(peopleList.Items), person.DisplayName)
-
-		// REMOVE AFTER TESTING:  Don't touch these accounts for now
-		if person.LastName == "Kidwell" || person.LastName == "Sab" || person.LastName == "Shnekendorf" ||
-			person.LastName == "Kundu" || person.LastName == "Malli" || person.LastName == "Desai" ||
-			person.LastName == "Goodwin" || person.LastName == "Cyr" || person.LastName == "Hasavimath" ||
-			person.LastName == "Leela Krishna" || person.LastName == "Vasanta" || person.LastName == "Reddy" ||
-			person.LastName == "Glas" || person.LastName == "Shaik" || person.LastName == "Uppushetty" {
-			fmt.Println("Skipping user: " + person.DisplayName)
-			continue
-		}
-
-		// if we made it this far then the user has been fully added to IDCS, groups, and VBCS apps so count the success
-		err := errors.New("")
-		if deleteFlagSet {
-			err = deleteIDCSVBCSUser(config, client, accessToken, person)
+	if runMode == LIST || runMode == ADD || runMode == DELETE {
+		if runMode == LIST {
+			println("*** Loop 1/1:  List all Aria users")
 		} else {
-			err = addIDCSVBCSUser(config, client, accessToken, person)
-		}
-		if err != nil {
-			fmt.Println(err.Error())
-		} else {
-			usersSucessfullyProcessed++
+			println("*** Loop 1/2:  Synchronize with IDCS & VBCS")
 		}
 
-		// REMOVE AFTER TESTING:  Stop at some fixed count
+		for i, person := range peopleList.Items {
+			if runMode != LIST {
+				fmt.Printf("* Processing user [%d/%d] -> %s\n", i+1, len(peopleList.Items), person.DisplayName)
+			}
 
-		if i >= BREAKCOUNT {
-			fmt.Println("Premature stop for testing!!!")
-			break
+			// if we made it this far then the user has been fully added to IDCS, groups, and VBCS apps so count the success
+			err := errors.New("")
+			if runMode == LIST {
+				fmt.Printf("** name=%s, email=%s, num_directs=%d, manager=%s", person.DisplayName, person.UserID, person.NumberOfDirects, person.Manager)
+			}
+			if runMode == DELETE {
+				err = deleteIDCSVBCSUser(config, client, accessToken, person)
+			}
+			if runMode == ADD {
+				err = addIDCSVBCSUser(config, client, accessToken, person)
+			}
+
+			if err != nil {
+				fmt.Println(err.Error())
+			} else {
+				usersSucessfullyProcessed++
+			}
+
+			// REMOVE AFTER TESTING:  Stop at some fixed count
+			/*
+				if i >= BREAKCOUNT {
+					fmt.Println("Premature stop for testing!!!")
+					break
+				}
+			*/
 		}
-
-	}
-	fmt.Printf("*** Sucessfully processed [%d/%d] Users for IDCS/VBCS (%s) \n", usersSucessfullyProcessed, len(peopleList.Items), time.Now().String())
-
-	// sync OEC to IDCS
-	println("*** Synchronizing IDCS to OEC in prep for second loop")
-	syncErr := syncOCEProfileData(config.OceBaseURL, config.OceUsername, config.OcePassword, client)
-	if syncErr != nil {
-		println("Can't sync OCE profile repository so no point in trying to load/unload OCE.  EXITING....")
-		os.Exit(1)
+		fmt.Printf("*** Sucessfully processed [%d/%d] Users for IDCS/VBCS (%s) \n", usersSucessfullyProcessed, len(peopleList.Items), time.Now().String())
 	}
 
-	// loop through all users and load/unload into OCE
-	usersSucessfullyProcessed = 0
-	println("*** Loop 2/2:  Synchronize with OEC")
-	for i, person := range peopleList.Items {
-		fmt.Printf("* Processing user [%d/%d] -> %s\n", i+1, len(peopleList.Items), person.DisplayName)
-
-		// REMOVE AFTER TESTING:  Don't touch these accounts for now
-		if person.LastName == "Kidwell" || person.LastName == "Sab" || person.LastName == "Shnekendorf" ||
-			person.LastName == "Kundu" || person.LastName == "Malli" || person.LastName == "Desai" ||
-			person.LastName == "Goodwin" || person.LastName == "Cyr" || person.LastName == "Hasavimath" ||
-			person.LastName == "Leela Krishna" || person.LastName == "Vasanta" || person.LastName == "Reddy" ||
-			person.LastName == "Glas" || person.LastName == "Shaik" || person.LastName == "Uppushetty" {
-			fmt.Println("Skipping user: " + person.DisplayName)
-			continue
+	if runMode == ADD || runMode == DELETE {
+		// sync OEC to IDCS
+		println("*** Synchronizing IDCS to OEC in prep for second loop")
+		syncErr := syncOCEProfileData(config.OceBaseURL, config.OceUsername, config.OcePassword, client)
+		if syncErr != nil {
+			println("Can't sync OCE profile repository so no point in trying to load/unload OCE.  EXITING....")
+			os.Exit(1)
 		}
 
-		err := errors.New("")
-		if deleteFlagSet {
-			err = deleteOCEUser(config, client, accessToken, person)
-		} else {
-			err = addOCEUser(config, client, accessToken, person)
-		}
-		if err != nil {
-			fmt.Println(err.Error())
-		} else {
-			usersSucessfullyProcessed++
-		}
+		// loop through all users and load/unload into OCE
+		usersSucessfullyProcessed = 0
+		println("*** Loop 2/2:  Synchronize with OEC")
+		for i, person := range peopleList.Items {
+			fmt.Printf("* Processing user [%d/%d] -> %s\n", i+1, len(peopleList.Items), person.DisplayName)
 
-		// REMOVE AFTER TESTING:  Stop at some fixed count
+			err := errors.New("")
+			if runMode == DELETE {
+				err = deleteOCEUser(config, client, accessToken, person)
+			}
+			if runMode == ADD {
+				err = addOCEUser(config, client, accessToken, person)
+			}
+			if err != nil {
+				fmt.Println(err.Error())
+			} else {
+				usersSucessfullyProcessed++
+			}
 
-		if i >= BREAKCOUNT {
-			fmt.Println("Premature stop for testing!!!")
-			break
+			// REMOVE AFTER TESTING:  Stop at some fixed count
+			/*
+				if i >= BREAKCOUNT {
+					fmt.Println("Premature stop for testing!!!")
+					break
+				}
+			*/
+
 		}
-
+		fmt.Printf("*** Sucessfully processed [%d/%d] Users for OCE (%s)\n", usersSucessfullyProcessed, len(peopleList.Items), time.Now().String())
 	}
-	fmt.Printf("*** Sucessfully processed [%d/%d] Users for OCE (%s)\n", usersSucessfullyProcessed, len(peopleList.Items), time.Now().String())
 
+	if runMode == CLEAN {
+		println("*** Loop 1/1:  Clean users from IDCS/VBCS/OCE not in Aria list")
+
+		// convert the personList to a hashmap for efficient searching
+		ariaMap := make(map[string]string)
+		for _, person := range peopleList.Items {
+			ariaMap[person.UserID] = person.UserID
+		}
+
+		// get all users from ECAL app
+		req, _ := http.NewRequest("GET", config.EcalUserEndpoint+"?limit=5000&fields=userEmail&onlyData=true", nil)
+		req.SetBasicAuth(config.VbcsUsername, config.VbcsPassword)
+		res, err := client.Do(req)
+		if err != nil || res == nil || res.StatusCode != 200 {
+			fmt.Println(outputHTTPError("Get all users from ECAL app", err, res))
+			os.Exit(3)
+		}
+		defer res.Body.Close()
+
+		json, _ := ioutil.ReadAll(res.Body)
+		result := gjson.Get(string(json), "items.#.userEmail").Array()
+		removeCount := 0
+		for _, email := range result {
+			_, userExistsInAria := ariaMap[email.String()]
+			if !userExistsInAria {
+				println("** User [" + email.String() + "] not found in Aria.  Removing from IDCS/VBCS/OCE")
+				removeCount++
+			}
+		}
+		fmt.Printf("*** Removed %d users from IDCS/VBCS/OCE\n", removeCount)
+	}
 }
 
 //
@@ -723,31 +765,39 @@ func convertManagerDnToEmail(managerDN string) string {
 }
 
 //
-// Determines whether this run should add or delete users from IDCS/VBCS.  Returns true to delete
-// and false to add (sets a delete flag on the main loop).  If --help or -h is passed in outputs
+// Determines what mode this invocation should run in.  Returns a constant value based on the argument detection
+// that should be used for comparison in the main control flow.  If --help or -h is passed in outputs
 // help to the command line
 //
-func deleteOnThisRun() bool {
+func invocationRunMode() string {
 	if len(os.Args) < 2 || os.Args[1] == "-h" || os.Args[1] == "--help" {
 		fmt.Printf("Usage: %s [--help || --add || --delete]\n", os.Args[0])
-		fmt.Println("--help:  Prints this message")
-		fmt.Println("--add:  Synchronizes users from Aria service to IDCS/VBCS/OCE apps")
-		fmt.Println("--delete:  Removes users returned from Aria service from IDCS/VBCS/OCE apps")
+		fmt.Println("--help:    Prints this message")
+		fmt.Println("--add:     Synchronizes users from Aria service to IDCS/VBCS/OCE apps")
+		fmt.Println("--delete:  Removes all users returned from Aria service from IDCS/VBCS/OCE apps")
+		fmt.Println("--clean:   Removes users from IDCS/VBCS/OCE apps who are no longer found in the Aria feed")
+		fmt.Println("--list:    List all user data retrieved from the Aria feed")
 		os.Exit(1)
 	}
 
-	if os.Args[1] == "--delete" {
+	if os.Args[1] == DELETE {
 		fmt.Println("Starting user DELETION flow")
-		return true
-	} else if os.Args[1] == "--add" {
+		return DELETE
+	} else if os.Args[1] == ADD {
 		fmt.Println("Starting user ADDITION flow")
-		return false
+		return ADD
+	} else if os.Args[1] == CLEAN {
+		fmt.Println("Starting user CLEAN flow")
+		return CLEAN
+	} else if os.Args[1] == LIST {
+		fmt.Println("Starting user LIST flow")
+		return LIST
 	} else {
 		fmt.Printf("Missing command line arguments.  Try %s --help\n", os.Args[0])
 		os.Exit(3)
 	}
 
-	return true // this return should never be reached
+	return "" // this return should never be reached
 }
 
 //

@@ -37,6 +37,11 @@ type Config struct {
 	EcalUpdateManagerPayload  string
 	EcalUserRoleCode          string
 	EcalManagerRoleCode       string
+	StsUserEndpoint           string
+	StsUserAddPayload         string
+	StsUpdateManagerPayload   string
+	StsUserRoleCode           string
+	StsManagerRoleCode        string
 	OceBaseURL                string
 	OceUsername               string
 	OcePassword               string
@@ -72,7 +77,7 @@ const CLEAN = "--clean"
 const LIST = "--list"
 
 func main() {
-	println("Invocation Start: " + time.Now().String())
+	println("Invocation Start: " + time.Now().Format(time.RFC3339))
 	// read system configuration from config file
 	config := loadConfig("config.json")
 
@@ -134,7 +139,7 @@ func main() {
 				}
 			*/
 		}
-		fmt.Printf("*** Sucessfully processed [%d/%d] Users for IDCS/VBCS (%s) \n", usersSucessfullyProcessed, len(peopleList.Items), time.Now().String())
+		fmt.Printf("*** Sucessfully processed [%d/%d] Users for IDCS/VBCS (%s) \n", usersSucessfullyProcessed, len(peopleList.Items), time.Now().Format(time.RFC3339))
 	}
 
 	if runMode == ADD || runMode == DELETE {
@@ -172,9 +177,8 @@ func main() {
 					break
 				}
 			*/
-
 		}
-		fmt.Printf("*** Sucessfully processed [%d/%d] Users for OCE (%s)\n", usersSucessfullyProcessed, len(peopleList.Items), time.Now().String())
+		fmt.Printf("*** Sucessfully processed [%d/%d] Users for OCE (%s)\n", usersSucessfullyProcessed, len(peopleList.Items), time.Now().Format(time.RFC3339))
 	}
 
 	if runMode == CLEAN {
@@ -264,6 +268,16 @@ func addIDCSVBCSUser(config Config, client *http.Client, accessToken string, per
 		return err
 	}
 
+	// add the user to the ECAL VBCS app user repository.  If the user exists, check the manager to make sure that
+	// data is current and update if needed
+	err = addUserToVBCSApp("STS", config.StsUserEndpoint, config.VbcsUsername, config.VbcsPassword,
+		config.StsUserAddPayload, config.StsUpdateManagerPayload, config.StsUserRoleCode, config.StsManagerRoleCode,
+		client, person)
+	if err != nil {
+		fmt.Println("Error adding user to STS App, continuing to next user...")
+		return err
+	}
+
 	return nil
 }
 
@@ -318,6 +332,12 @@ func deleteIDCSVBCSUser(config Config, client *http.Client, accessToken string, 
 
 	// delete user from ECAL app
 	err = deleteUserFromVBCSApp("ECAL", config.EcalUserEndpoint, config.VbcsUsername, config.VbcsPassword, client, accessToken, person)
+	if err != nil {
+		return err
+	}
+
+	// delete user from STS app
+	err = deleteUserFromVBCSApp("STS", config.StsUserEndpoint, config.VbcsUsername, config.VbcsPassword, client, accessToken, person)
 	if err != nil {
 		return err
 	}
@@ -706,7 +726,8 @@ func getPeopleFromAria(config Config, client *http.Client) AriaServicePersonList
 	req.SetBasicAuth(config.AriaServiceUsername, config.AriaServicePassword)
 	res, err := client.Do(req)
 	if err != nil || res == nil || res.StatusCode != 200 {
-		panic(outputHTTPError("Getting Aria Person List", err, res))
+		outputHTTPError("Getting Aria Person List", err, res)
+		panic("exiting")
 	}
 	defer res.Body.Close()
 	peopleList := AriaServicePersonList{}

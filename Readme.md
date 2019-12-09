@@ -1,5 +1,5 @@
 # CTO Tenancy Identity Synchronizer
-This is a purpose-built app that takes user information from a bespoke user service and leverages Oracle Identity Cloud (IDCS) and Oracle Integration Cloud (OIC) APIs to populate appropriate user/group data in both repositories.
+This is a purpose-built app that takes user information from a bespoke user service and leverages Oracle Identity Cloud (IDCS), Oracle Integration Cloud (OIC), and Oracle Content & Experience (OCE) APIs to populate appropriate user/group data all repositories.
 
 The app requires a file named *config.json* to be present the same directory from which the app is run.  A sample file (with identifying credentials removed) looks like this:
 
@@ -11,15 +11,22 @@ The app requires a file named *config.json* to be present the same directory fro
     "IdcsCreateNewUserPayload": "{\"schemas\":[\"urn:ietf:params:scim:schemas:core:2.0:User\"],\"name\":{\"givenName\":\"%FIRSTNAME%\",\"familyName\":\"%LASTNAME%\"},\"active\":true,\"userName\":\"%USERNAME%\",\"emails\":[{\"value\":\"%USERNAME%\",\"type\":\"work\",\"primary\":true},{\"value\":\"%USERNAME%\",\"primary\":false,\"type\":\"recovery\", \"urn:ietf:params:scim:schemas:oracle:idcs:extension:user:User:isFederatedUser\": true}]}",
     "IdcsAddUserToGroupPayload": "{\"schemas\":[\"urn:ietf:params:scim:api:messages:2.0:PatchOp\"],\"Operations\":[{\"op\":\"add\",\"path\":\"members\",\"value\":[{\"value\":\"%USERID%\",\"type\":\"User\"}]}]}",
     "AriaServiceEndpointURL": "{{aria_service_endpoint}}",
+    "AriaServiceUsername": "{{aria_service_username}}",
+    "AriaServicePassword": "{{aria_service_password}}",
     "ManagerGroupNames": "Prod_ECAL_Managers,Prod_ECAL_Artifact_Downloaders,Prod_Analytics_ServiceViewers,Prod_STS_Managers",
     "UserGroupNames": "Prod_ECAL_Users,Prod_ECAL_Artifact_Downloaders,Prod_STS_Users",
     "VbcsUsername": "{{serviceaccount_username}}",
     "VbcsPassword": "{{serviceaccount_password}}",
-    "EcalUserEndpoint": "https://{{your_instance_name}}.integration.ocp.oraclecloud.com/ic/builder/design/ECAL/1.0/resources/data/User1",
+    "EcalUserEndpoint": "https://{{your_instance_name}}.integration.ocp.oraclecloud.com/ic/builder/design/ECAL/live/resources/data/User1",
     "EcalUserAddPayload": "{\"userEmail\":\"%USERNAME%\",\"firstName\":\"%FIRSTNAME%\",\"lastName\":\"%LASTNAME%\",\"manager\":\"%MANAGER%\",\"roleName\":%ROLE%}",
     "EcalUpdateManagerPayload": "{\"manager\": \"%MANAGER%\"}",
     "EcalUserRoleCode": "{{generated_id_of_user_role_in_ecal_roletype_business_object}}",
     "EcalManagerRoleCode": "{{primary_id_of_manager_role_in_ecal_roletype_business_object}}",
+    "StsUserEndpoint": "https://{{your_instance_name}}.integration.ocp.oraclecloud.com/ic/builder/rt/STS/live/resources/data/STSUser",
+    "StslUserAddPayload": "{\"userEmail\":\"%USERNAME%\",\"firstName\":\"%FIRSTNAME%\",\"lastName\":\"%LASTNAME%\",\"manager\":\"%MANAGER%\",\"roleName\":%ROLE%,\"path\":1}",
+    "StslUpdateManagerPayload": "{\"manager\": \"%MANAGER%\"}",
+    "StsUserRoleCode": "{{generated_id_of_user_role_in_sts_role_business_object}}",
+    "StsManagerRoleCode": "{{generated_id_of_manager_role_in_sts_role_business_object}}",
     "OceBaseURL": "https://{{your_instance_name}}.cec.ocp.oraclecloud.com",
     "OceUsername": "{{serviceaccount_username}}",
     "OcePassword": "{{serviceaccount_password}}",
@@ -37,6 +44,7 @@ cto-identity-sync [--help || --add || --delete]
 --help:     Prints this message
 --add:      Synchronizes users from Aria service to IDCS/VBCS/OCE apps
 --delete:   Removes users returned from Aria service from IDCS/VBCS/OCE apps
+--clean:    Removes users from IDCS/VBCS/OCE who are no longer found in the Aria service
 ```
 
 ## Building the service from code
@@ -63,6 +71,8 @@ The following steps can be followed to build this service on Oracle Cloud Infras
 1. Add a cron job to run the identity sync tool once a day at 4am
     1. 0 4 * * * cd /home/opc/cto-identity-sync/;./cto-identity-sync --add > /home/opc/identity.out
 
+## Related Services
+* Aria (LDAP) Service:  https://github.com/eshneken/cto-identity-ldap-source
 
 ## Principles for API Usage
 * Setting up IDCS with client application to retrieve JWT bearer tokens:  https://www.oracle.com/webfolder/technetwork/tutorials/obe/cloud/idcs/idcs_rest_1stcall_obe/rest_1stcall.html

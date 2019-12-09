@@ -26,6 +26,8 @@ type Config struct {
 	IdcsCreateNewUserPayload  string
 	IdcsAddUserToGroupPayload string
 	AriaServiceEndpointURL    string
+	AriaServiceUsername       string
+	AriaServicePassword       string
 	ManagerGroupNames         string
 	UserGroupNames            string
 	VbcsUsername              string
@@ -701,6 +703,7 @@ func getOCEAccessToken(config Config, client *http.Client) string {
 //
 func getPeopleFromAria(config Config, client *http.Client) AriaServicePersonList {
 	req, _ := http.NewRequest("GET", config.AriaServiceEndpointURL, nil)
+	req.SetBasicAuth(config.AriaServiceUsername, config.AriaServicePassword)
 	res, err := client.Do(req)
 	if err != nil || res == nil || res.StatusCode != 200 {
 		panic(outputHTTPError("Getting Aria Person List", err, res))

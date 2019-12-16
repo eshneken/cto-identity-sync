@@ -185,9 +185,9 @@ func main() {
 		println("*** Loop 1/1:  Clean users from IDCS/VBCS/OCE not in Aria list")
 
 		// convert the personList to a hashmap for efficient searching
-		ariaMap := make(map[string]string)
+		ariaMap := make(map[string]AriaServicePerson)
 		for _, person := range peopleList.Items {
-			ariaMap[person.UserID] = person.UserID
+			ariaMap[person.UserID] = person
 		}
 
 		// get all users from ECAL app
@@ -204,10 +204,29 @@ func main() {
 		result := gjson.Get(string(json), "items.#.userEmail").Array()
 		removeCount := 0
 		for _, email := range result {
-			_, userExistsInAria := ariaMap[email.String()]
+			person, userExistsInAria := ariaMap[email.String()]
 			if !userExistsInAria {
 				println("** User [" + email.String() + "] not found in Aria.  Removing from IDCS/VBCS/OCE")
-				removeCount++
+				person.UserID = email.String()
+				person.DisplayName = email.String()
+
+				// remove user from VBCS
+				err = deleteIDCSVBCSUser(config, client, accessToken, person)
+				if err != nil {
+					fmt.Println(err.Error())
+				}
+
+				// remove user from OCE
+				err2 := deleteOCEUser(config, client, accessToken, person)
+				if err2 != nil {
+					fmt.Println(err2.Error())
+				}
+
+				// up the success count
+				if err == nil && err2 == nil {
+					removeCount++
+				}
+
 			}
 		}
 		fmt.Printf("*** Removed %d users from IDCS/VBCS/OCE\n", removeCount)

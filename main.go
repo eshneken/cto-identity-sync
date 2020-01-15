@@ -1,9 +1,10 @@
 //	CTO Tenancy Identity Synchronizer
-//	Ed Shnekendorf, 2019, https://github.com/eshneken/cto-identity-sync
+//	Ed Shnekendorf, 2020, https://github.com/eshneken/cto-identity-sync
 
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -206,27 +207,35 @@ func main() {
 		for _, email := range result {
 			person, userExistsInAria := ariaMap[email.String()]
 			if !userExistsInAria {
-				println("** User [" + email.String() + "] not found in Aria.  Removing from IDCS/VBCS/OCE")
+				fmt.Printf("** User [" + email.String() + "] not found in Aria.  Remove [y/n]?")
+
+				// confirm removal by reading response from console
+				text, _ := bufio.NewReader(os.Stdin).ReadString('\n')
 				person.UserID = email.String()
 				person.DisplayName = email.String()
+				text = strings.Replace(text, "\n", "", -1)
 
-				// remove user from VBCS
-				err = deleteIDCSVBCSUser(config, client, accessToken, person)
-				if err != nil {
-					fmt.Println(err.Error())
+				if strings.Compare("Y", strings.ToUpper(text)) == 0 {
+					println("*** Removing user [" + email.String() + "]")
+					// remove user from VBCS
+					err = deleteIDCSVBCSUser(config, client, accessToken, person)
+					if err != nil {
+						fmt.Println(err.Error())
+					}
+
+					// remove user from OCE
+					err2 := deleteOCEUser(config, client, accessToken, person)
+					if err2 != nil {
+						fmt.Println(err2.Error())
+					}
+
+					// up the success count
+					if err == nil && err2 == nil {
+						removeCount++
+					}
+				} else {
+					println("*** Skipping removal of user [" + email.String() + "]")
 				}
-
-				// remove user from OCE
-				err2 := deleteOCEUser(config, client, accessToken, person)
-				if err2 != nil {
-					fmt.Println(err2.Error())
-				}
-
-				// up the success count
-				if err == nil && err2 == nil {
-					removeCount++
-				}
-
 			}
 		}
 		fmt.Printf("*** Removed %d users from IDCS/VBCS/OCE\n", removeCount)
@@ -818,7 +827,7 @@ func invocationRunMode() string {
 		fmt.Println("--help:    Prints this message")
 		fmt.Println("--add:     Synchronizes users from Aria service to IDCS/VBCS/OCE apps")
 		fmt.Println("--delete:  Removes all users returned from Aria service from IDCS/VBCS/OCE apps")
-		fmt.Println("--clean:   Removes users from IDCS/VBCS/OCE apps who are no longer found in the Aria feed")
+		fmt.Println("--clean:   Removes users from IDCS/VBCS/OCE apps who are no longer found in the Aria feed.  This should be run interactively since it requires console confirmation for each user to be deleted.")
 		fmt.Println("--list:    List all user data retrieved from the Aria feed")
 		os.Exit(1)
 	}

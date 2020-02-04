@@ -12,15 +12,21 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/hashicorp/vault/api"
 	"github.com/tidwall/gjson"
 )
 
 // Config holds all config data loaded from local config.json file
 type Config struct {
+	VaultAddress              string
+	VaultCli                  string
+	VaultRole                 string
 	IdcsBaseURL               string
 	IdcsClientID              string
 	IdcsClientSecret          string
@@ -77,13 +83,20 @@ const CLEAN = "--clean"
 // LIST argument for list mode
 const LIST = "--list"
 
+// OptionalHashiVaultToken stores a HashiCorp Vault token read from the command line as the second argument
+// This is helpful when developing/testing/running from your local machine without the benefit of OCI InstancePrincipal
+// authentication
+var OptionalHashiVaultToken string
+
 func main() {
 	println("Invocation Start: " + time.Now().Format(time.RFC3339))
-	// read system configuration from config file
-	config := loadConfig("config.json")
 
 	// determine if we are synchronizing or deleting users for this run
-	runMode := invocationRunMode()
+	var runMode string
+	runMode, OptionalHashiVaultToken = invocationRunMode()
+
+	// read system configuration from config file
+	config := loadConfig("config.json")
 
 	// create HTTP Client
 	client := &http.Client{}
@@ -764,23 +777,89 @@ func getPeopleFromAria(config Config, client *http.Client) AriaServicePersonList
 }
 
 //
-//  Read the config.json file and parse configuration data into a struct.  On error, panic here.
+//  Read the config.json file and parse configuration data into a struct. Communicate with the HashiCorp Vault server
+//  to retrieve the secret data. On error, panic here.
 //
 func loadConfig(filename string) Config {
+
+	// open the config file
 	var config = Config{}
 	file, err := os.Open(filename)
 	if err != nil {
-		panic(err.Error())
+		panic("reading config.json: " + err.Error())
 	}
 	defer file.Close()
 
+	// decode config.json into struct
 	decoder := json.NewDecoder(file)
 	err = decoder.Decode(&config)
 	if err != nil {
-		panic(err.Error())
+		panic("marshalling to struct: " + err.Error())
+	}
+
+	// connect to HashiCorp Vault
+	vaultConfig := &api.Config{Address: config.VaultAddress}
+	hashiClient, err := api.NewClient(vaultConfig)
+	if err != nil {
+		panic("connecting to Vault[" + config.VaultAddress + "]: " + err.Error())
+	}
+
+	// get Vault token
+	if len(OptionalHashiVaultToken) > 1 {
+		hashiClient.SetToken(OptionalHashiVaultToken)
+	} else {
+		vaultToken, err := getVaultToken(config)
+		if err != nil {
+			panic("authenticating & getting token: " + err.Error())
+		}
+		hashiClient.SetToken(vaultToken)
+	}
+
+	// step through all the struc values and scan for [vault] prefix
+	// which indicates that the value needs to be retrieved from a HashiCorp
+	// vault server
+	v := reflect.ValueOf(config)
+	values := make([]interface{}, v.NumField())
+	for i := 0; i < v.NumField(); i++ {
+		values[i] = v.Field(i).Interface()
+		if strings.HasPrefix(values[i].(string), "[vault]") {
+			vaultKey := strings.TrimPrefix(values[i].(string), "[vault]")
+			vaultValue, err := hashiClient.Logical().Read("cto/" + vaultKey)
+			if vaultValue == nil || err != nil {
+				panic("reading value for key [" + vaultKey + "]: " + err.Error())
+			}
+			reflect.ValueOf(&config).Elem().FieldByName(vaultKey).SetString(vaultValue.Data["value"].(string))
+		}
 	}
 
 	return config
+}
+
+//
+// getVaultToken authenticates against HashiCorp Vault using OCI instance principal credentials, scans the output
+// and returns the session token to be used by the Hashi client.
+//
+func getVaultToken(config Config) (string, error) {
+	// authenticate against Vault using instance principal credentials
+	stdout, err := exec.Command(config.VaultCli, "login", "-address="+config.VaultAddress,
+		"-method=oci", "auth_type=instance", "role="+config.VaultRole).Output()
+	if err != nil {
+		return "", err
+	}
+
+	// scan through the vault cli output and scan for the standalone token line
+	// not that the HasPrefix method includes a space in the pattern after token
+	// to get the correct value
+	token := ""
+	output := strings.Split(string(stdout), "\n")
+	for _, line := range output {
+		if strings.HasPrefix(line, "token ") {
+			fields := strings.Fields(line)
+			token = fields[1]
+		}
+	}
+
+	return token, nil
 }
 
 //
@@ -819,9 +898,12 @@ func convertManagerDnToEmail(managerDN string) string {
 //
 // Determines what mode this invocation should run in.  Returns a constant value based on the argument detection
 // that should be used for comparison in the main control flow.  If --help or -h is passed in outputs
-// help to the command line
+// help to the command line.
 //
-func invocationRunMode() string {
+// An undocumented feature returns the second argument as the HashiCorp token so that this utility can be tested
+// in a local, non-OCI environment where instance principal authentication is not supported
+//
+func invocationRunMode() (string, string) {
 	if len(os.Args) < 2 || os.Args[1] == "-h" || os.Args[1] == "--help" {
 		fmt.Printf("Usage: %s [--help || --add || --delete]\n", os.Args[0])
 		fmt.Println("--help:    Prints this message")
@@ -832,24 +914,30 @@ func invocationRunMode() string {
 		os.Exit(1)
 	}
 
+	// pick up the unpublished vault token argument if is passed along
+	vaultToken := ""
+	if len(os.Args) == 3 {
+		vaultToken = os.Args[2]
+	}
+
 	if os.Args[1] == DELETE {
 		fmt.Println("Starting user DELETION flow")
-		return DELETE
+		return DELETE, vaultToken
 	} else if os.Args[1] == ADD {
 		fmt.Println("Starting user ADDITION flow")
-		return ADD
+		return ADD, vaultToken
 	} else if os.Args[1] == CLEAN {
 		fmt.Println("Starting user CLEAN flow")
-		return CLEAN
+		return CLEAN, vaultToken
 	} else if os.Args[1] == LIST {
 		fmt.Println("Starting user LIST flow")
-		return LIST
+		return LIST, vaultToken
 	} else {
 		fmt.Printf("Missing command line arguments.  Try %s --help\n", os.Args[0])
 		os.Exit(3)
 	}
 
-	return "" // this return should never be reached
+	return "", "" // this return should never be reached
 }
 
 //

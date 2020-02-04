@@ -5,6 +5,9 @@ The app requires a file named *config.json* to be present the same directory fro
 
 ```json
 {
+    "VaultAddress": "http://127.0.0.1:8200",
+	"VaultCli": "/home/opc/vault",
+    "VaultRole": "cto-secret-reader",
     "IdcsBaseURL": "https://idcs-{{your_stripe}}.identity.oraclecloud.com",
     "IdcsClientID": "{{your_client_id}}",
     "IdcsClientSecret": "{{your_client_secret}}",

@@ -219,7 +219,7 @@ func main() {
 		removeCount := 0
 		for _, email := range result {
 			person, userExistsInAria := ariaMap[email.String()]
-			if !userExistsInAria {
+			if !userExistsInAria && !strings.Contains(email.String(), "cto-test") {
 				fmt.Printf("** User [" + email.String() + "] not found in Aria.  Remove [y/n]?")
 
 				// confirm removal by reading response from console

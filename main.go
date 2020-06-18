@@ -772,7 +772,7 @@ func getPeopleFromAria(config Config, client *http.Client) AriaServicePersonList
 }
 
 //
-//  Read the config.json file and parse configuration data into a struct. Communicate with the HashiCorp Vault server
+//  Read the config.json file and parse configuration data into a struct. Communicate with the OCI Secrets Service
 //  to retrieve the secret data. On error, panic here.
 //
 func loadConfig(filename string) Config {

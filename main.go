@@ -792,7 +792,7 @@ func loadConfig(filename string) Config {
 		panic("marshalling to struct: " + err.Error())
 	}
 
-	// connect to the OCI Secret Service
+	// connect to the OCI Secrets Service
 	var provider common.ConfigurationProvider
 	provider, err = auth.InstancePrincipalConfigurationProvider()
 	if err != nil {
@@ -801,7 +801,7 @@ func loadConfig(filename string) Config {
 
 	client, err := secrets.NewSecretsClientWithConfigurationProvider(provider)
 	if err != nil {
-		panic("connecting to OCI Secret Service: " + err.Error())
+		panic("connecting to OCI Secrets Service: " + err.Error())
 	}
 
 	// step through all the struct values and scan for [vault] prefix

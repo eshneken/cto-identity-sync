@@ -5,9 +5,6 @@ The app requires a file named *config.json* to be present the same directory fro
 
 ```json
 {
-    "VaultAddress": "http://127.0.0.1:8200",
-	"VaultCli": "/home/opc/vault",
-    "VaultRole": "cto-secret-reader",
     "IdcsBaseURL": "https://idcs-{{your_stripe}}.identity.oraclecloud.com",
     "IdcsClientID": "{{your_client_id}}",
     "IdcsClientSecret": "{{your_client_secret}}",
@@ -37,6 +34,15 @@ The app requires a file named *config.json* to be present the same directory fro
     "OceAddUserPayload": "{\"userID\":\"%USERNAME%\",\"role\":\"downloader\"}"
 }
 ```
+When used with the OCI Secrets Service the format of any vaulted credentials must be in the form of:  
+```
+[vault]FieldName:SecretOCID
+```
+
+For example:
+``` 
+"IdcsClientSecret": "[vault]IdcsClientSecret:ocid1.vaultsecret.oc1.iad.amaaaaaabxdvnfaaojh62dolelcp4xk93xrms6jfagdec2p3slzs7fx2iicq"
+```
 
 This utility supports both synchronizing from the source to IDCS/VBCS as well as removing all users (based on the same source) from the target systems.
 
@@ -60,7 +66,9 @@ The following steps can be followed to build this service on Oracle Cloud Infras
 1. Clone git repo (git clone {{this repo name}})
     1. git clone https://github.com/eshneken/cto-identity-sync
 1. Download gjson dependency package 
-    1. sudo go get -u github.com/tidwall/gjson
+    1. go get -u github.com/tidwall/gjson
+1. Download OCI golang SDK and make sure this instance either has ~/.oci/config set (local mode) or is configured for InstancePrincipal authentication 
+    1. go get -u github.com/oracle/oci-go-sdk
 1. Add a config.json file to the cto-identity-sync directory with the appropriate values
 1. Build the package
     1. sudo go build
@@ -72,10 +80,10 @@ The following steps can be followed to build this service on Oracle Cloud Infras
 1. Open the opc user's crontab
     1. crontab -e
 1. Add a cron job to run the identity sync tool once a day at 4am
-    1. 0 4 * * * cd /home/opc/cto-identity-sync/;./cto-identity-sync --add > /home/opc/identity.out
+    1. 0 4 * * * cd /home/opc/cto-identity-sync/;./cto-identity-sync --add &> /home/opc/identity.out
 
 ## Related Services
-* Aria (LDAP) Service:  https://github.com/eshneken/cto-identity-ldap-source
+* CTO Bizlogic Helper Service:  https://github.com/eshneken/cto-bizlogic-helper
 
 ## Principles for API Usage
 * Setting up IDCS with client application to retrieve JWT bearer tokens:  https://www.oracle.com/webfolder/technetwork/tutorials/obe/cloud/idcs/idcs_rest_1stcall_obe/rest_1stcall.html
@@ -87,4 +95,5 @@ https://www.oracle.com/webfolder/technetwork/tutorials/obe/cloud/idcs/idcs_rest_
 ## Third Party Packages Used
 
  * Read-only JSON pathing support:  https://github.com/tidwall/gjson
+ * OCI Golang SDK:  https://github.com/oracle/oci-go-sdk
  

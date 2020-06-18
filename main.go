@@ -5,6 +5,8 @@ package main
 
 import (
 	"bufio"
+	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,21 +14,19 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"reflect"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/hashicorp/vault/api"
+	"github.com/oracle/oci-go-sdk/common"
+	"github.com/oracle/oci-go-sdk/common/auth"
+	"github.com/oracle/oci-go-sdk/secrets"
 	"github.com/tidwall/gjson"
 )
 
 // Config holds all config data loaded from local config.json file
 type Config struct {
-	VaultAddress              string
-	VaultCli                  string
-	VaultRole                 string
 	IdcsBaseURL               string
 	IdcsClientID              string
 	IdcsClientSecret          string
@@ -56,7 +56,7 @@ type Config struct {
 	OceAddUserPayload         string
 }
 
-// AriaServicePerson represents an individual returned from the custom Aria export service
+// AriaServicePerson represents an individual returned from the corporate identity feed
 type AriaServicePerson struct {
 	UserID          string `json:"id"`
 	LastName        string `json:"sn"`
@@ -83,17 +83,12 @@ const CLEAN = "--clean"
 // LIST argument for list mode
 const LIST = "--list"
 
-// OptionalHashiVaultToken stores a HashiCorp Vault token read from the command line as the second argument
-// This is helpful when developing/testing/running from your local machine without the benefit of OCI InstancePrincipal
-// authentication
-var OptionalHashiVaultToken string
-
 func main() {
 	println("Invocation Start: " + time.Now().Format(time.RFC3339))
 
 	// determine if we are synchronizing or deleting users for this run
 	var runMode string
-	runMode, OptionalHashiVaultToken = invocationRunMode()
+	runMode = invocationRunMode()
 
 	// read system configuration from config file
 	config := loadConfig("config.json")
@@ -101,10 +96,10 @@ func main() {
 	// create HTTP Client
 	client := &http.Client{}
 
-	// retrieve all person objects from bespoke Aria service
-	fmt.Println("Calling Aria service to retrieve SE org")
+	// retrieve all person objects from corporate identity feed
+	fmt.Println("Calling corporate identity feed to retrieve SE org")
 	peopleList := getPeopleFromAria(config, client)
-	fmt.Printf("Retrieved [%d] person entries from Aria Service\n", len(peopleList.Items))
+	fmt.Printf("Retrieved [%d] person entries from corporate identity feed\n", len(peopleList.Items))
 
 	// get IDCS bearer token
 	fmt.Println("Authenticating to IDCS")
@@ -117,7 +112,7 @@ func main() {
 	usersSucessfullyProcessed := 0
 	if runMode == LIST || runMode == ADD || runMode == DELETE {
 		if runMode == LIST {
-			println("*** Loop 1/1:  List all Aria users")
+			println("*** Loop 1/1:  List all corporate identities")
 		} else {
 			println("*** Loop 1/2:  Synchronize with IDCS & VBCS")
 		}
@@ -196,7 +191,7 @@ func main() {
 	}
 
 	if runMode == CLEAN {
-		println("*** Loop 1/1:  Clean users from IDCS/VBCS/OCE not in Aria list")
+		println("*** Loop 1/1:  Clean users from IDCS/VBCS/OCE not in corporate identity feed")
 
 		// convert the personList to a hashmap for efficient searching
 		ariaMap := make(map[string]AriaServicePerson)
@@ -220,7 +215,7 @@ func main() {
 		for _, email := range result {
 			person, userExistsInAria := ariaMap[email.String()]
 			if !userExistsInAria && !strings.Contains(email.String(), "cto-test") {
-				fmt.Printf("** User [" + email.String() + "] not found in Aria.  Remove [y/n]?")
+				fmt.Printf("** User [" + email.String() + "] not found in corporate identity feed.  Remove [y/n]?")
 
 				// confirm removal by reading response from console
 				text, _ := bufio.NewReader(os.Stdin).ReadString('\n')
@@ -760,14 +755,14 @@ func getOCEAccessToken(config Config, client *http.Client) string {
 	return accessToken.String()
 }
 
-// Call Aria service to get a list of all people.  If we get an error then panic here since we can't proceed further
+// Call corporate identity feed to get a list of all people.  If we get an error then panic here since we can't proceed further
 //
 func getPeopleFromAria(config Config, client *http.Client) AriaServicePersonList {
 	req, _ := http.NewRequest("GET", config.AriaServiceEndpointURL, nil)
 	req.SetBasicAuth(config.AriaServiceUsername, config.AriaServicePassword)
 	res, err := client.Do(req)
 	if err != nil || res == nil || res.StatusCode != 200 {
-		outputHTTPError("Getting Aria Person List", err, res)
+		outputHTTPError("Getting corporate identity list", err, res)
 		panic("exiting")
 	}
 	defer res.Body.Close()
@@ -797,38 +792,31 @@ func loadConfig(filename string) Config {
 		panic("marshalling to struct: " + err.Error())
 	}
 
-	// connect to HashiCorp Vault
-	vaultConfig := &api.Config{Address: config.VaultAddress}
-	hashiClient, err := api.NewClient(vaultConfig)
+	// connect to the OCI Secret Service
+	var provider common.ConfigurationProvider
+	provider, err = auth.InstancePrincipalConfigurationProvider()
 	if err != nil {
-		panic("connecting to Vault[" + config.VaultAddress + "]: " + err.Error())
+		provider = common.DefaultConfigProvider()
 	}
 
-	// get Vault token
-	if len(OptionalHashiVaultToken) > 1 {
-		hashiClient.SetToken(OptionalHashiVaultToken)
-	} else {
-		vaultToken, err := getVaultToken(config)
-		if err != nil {
-			panic("authenticating & getting token: " + err.Error())
-		}
-		hashiClient.SetToken(vaultToken)
+	client, err := secrets.NewSecretsClientWithConfigurationProvider(provider)
+	if err != nil {
+		panic("connecting to OCI Secret Service: " + err.Error())
 	}
 
-	// step through all the struc values and scan for [vault] prefix
-	// which indicates that the value needs to be retrieved from a HashiCorp
-	// vault server
+	// step through all the struct values and scan for [vault] prefix
+	// which indicates that the value needs to be retrieved from the OCI Secret Service
+	// format is [vault]FieldName:OCID
 	v := reflect.ValueOf(config)
 	values := make([]interface{}, v.NumField())
 	for i := 0; i < v.NumField(); i++ {
 		values[i] = v.Field(i).Interface()
 		if strings.HasPrefix(values[i].(string), "[vault]") {
-			vaultKey := strings.TrimPrefix(values[i].(string), "[vault]")
-			vaultValue, err := hashiClient.Logical().Read("cto/" + vaultKey)
-			if vaultValue == nil || err != nil {
-				panic("reading value for key [" + vaultKey + "]: " + err.Error())
-			}
-			reflect.ValueOf(&config).Elem().FieldByName(vaultKey).SetString(vaultValue.Data["value"].(string))
+			keySlice := strings.Split(strings.TrimPrefix(values[i].(string), "[vault]"), ":")
+			fieldName := keySlice[0]
+			vaultKey := keySlice[1]
+			vaultValue := getSecretValue(client, vaultKey)
+			reflect.ValueOf(&config).Elem().FieldByName(fieldName).SetString(vaultValue)
 		}
 	}
 
@@ -836,30 +824,23 @@ func loadConfig(filename string) Config {
 }
 
 //
-// getVaultToken authenticates against HashiCorp Vault using OCI instance principal credentials, scans the output
-// and returns the session token to be used by the Hashi client.
+// Returns a secret value from the OCI Secret Service based on a secret OCID
 //
-func getVaultToken(config Config) (string, error) {
-	// authenticate against Vault using instance principal credentials
-	stdout, err := exec.Command(config.VaultCli, "login", "-address="+config.VaultAddress,
-		"-method=oci", "auth_type=instance", "role="+config.VaultRole).Output()
+func getSecretValue(client secrets.SecretsClient, secretOCID string) string {
+	request := secrets.GetSecretBundleRequest{SecretId: &secretOCID}
+	response, err := client.GetSecretBundle(context.Background(), request)
 	if err != nil {
-		return "", err
+		panic("reading value for key [" + secretOCID + "]: " + err.Error())
 	}
 
-	// scan through the vault cli output and scan for the standalone token line
-	// not that the HasPrefix method includes a space in the pattern after token
-	// to get the correct value
-	token := ""
-	output := strings.Split(string(stdout), "\n")
-	for _, line := range output {
-		if strings.HasPrefix(line, "token ") {
-			fields := strings.Fields(line)
-			token = fields[1]
-		}
+	encodedResponse := fmt.Sprintf("%s", response.SecretBundleContent)
+	encodedResponse = strings.TrimRight(strings.TrimLeft(encodedResponse, "{ Content="), " }")
+	decodedByteArray, err := base64.StdEncoding.DecodeString(encodedResponse)
+	if err != nil {
+		panic("decoding value for key [" + secretOCID + "]: " + err.Error())
 	}
 
-	return token, nil
+	return string(decodedByteArray)
 }
 
 //
@@ -900,44 +881,35 @@ func convertManagerDnToEmail(managerDN string) string {
 // that should be used for comparison in the main control flow.  If --help or -h is passed in outputs
 // help to the command line.
 //
-// An undocumented feature returns the second argument as the HashiCorp token so that this utility can be tested
-// in a local, non-OCI environment where instance principal authentication is not supported
-//
-func invocationRunMode() (string, string) {
+func invocationRunMode() string {
 	if len(os.Args) < 2 || os.Args[1] == "-h" || os.Args[1] == "--help" {
 		fmt.Printf("Usage: %s [--help || --add || --delete]\n", os.Args[0])
 		fmt.Println("--help:    Prints this message")
-		fmt.Println("--add:     Synchronizes users from Aria service to IDCS/VBCS/OCE apps")
-		fmt.Println("--delete:  Removes all users returned from Aria service from IDCS/VBCS/OCE apps")
-		fmt.Println("--clean:   Removes users from IDCS/VBCS/OCE apps who are no longer found in the Aria feed.  This should be run interactively since it requires console confirmation for each user to be deleted.")
-		fmt.Println("--list:    List all user data retrieved from the Aria feed")
+		fmt.Println("--add:     Synchronizes users from the corporate identity feed to IDCS/VBCS/OCE apps")
+		fmt.Println("--delete:  Removes all users returned from the corporate identity feed from IDCS/VBCS/OCE apps")
+		fmt.Println("--clean:   Removes users from IDCS/VBCS/OCE apps who are no longer found in the corporate identity feed.  This should be run interactively since it requires console confirmation for each user to be deleted.")
+		fmt.Println("--list:    List all user data retrieved from the corporate identity feed")
 		os.Exit(1)
-	}
-
-	// pick up the unpublished vault token argument if is passed along
-	vaultToken := ""
-	if len(os.Args) == 3 {
-		vaultToken = os.Args[2]
 	}
 
 	if os.Args[1] == DELETE {
 		fmt.Println("Starting user DELETION flow")
-		return DELETE, vaultToken
+		return DELETE
 	} else if os.Args[1] == ADD {
 		fmt.Println("Starting user ADDITION flow")
-		return ADD, vaultToken
+		return ADD
 	} else if os.Args[1] == CLEAN {
 		fmt.Println("Starting user CLEAN flow")
-		return CLEAN, vaultToken
+		return CLEAN
 	} else if os.Args[1] == LIST {
 		fmt.Println("Starting user LIST flow")
-		return LIST, vaultToken
+		return LIST
 	} else {
 		fmt.Printf("Missing command line arguments.  Try %s --help\n", os.Args[0])
 		os.Exit(3)
 	}
 
-	return "", "" // this return should never be reached
+	return "" // this return should never be reached
 }
 
 //

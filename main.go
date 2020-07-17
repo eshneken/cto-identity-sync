@@ -497,44 +497,39 @@ func addUserToVBCSApp(appName string, endpoint string, username string, password
 	// get the internal person ID from VBCS and their manager email
 	json, _ := ioutil.ReadAll(res.Body)
 	personID := gjson.Get(string(json), "items.0.id")
-	managerID := gjson.Get(string(json), "items.0.manager")
 
-	// if a userid was returned then the person already exists.
+	// build either the add (post) or update (path) payload
+	payload := strings.ReplaceAll(addUserTemplate, "%USERNAME%", person.UserID)
+	payload = strings.ReplaceAll(payload, "%FIRSTNAME%", person.FirstName)
+	payload = strings.ReplaceAll(payload, "%LASTNAME%", person.LastName)
+	payload = strings.ReplaceAll(payload, "%MANAGER%", person.Manager)
+	if person.NumberOfDirects > 0 {
+		payload = strings.ReplaceAll(payload, "%ROLE%", managerRole)
+	} else {
+		payload = strings.ReplaceAll(payload, "%ROLE%", userRole)
+	}
+
+	// if a userid was returned then the person already exists.  In case a manager, name, or role changed we make
+	// the decision to just update all users in VBCS every time to keep things clean.
 	if len(personID.String()) > 0 {
-		// this block handles the case where the user already exists and we check to see if the manager
-		// email needs to be updated
-		if managerID.String() != person.Manager {
-			payload := strings.ReplaceAll(replaceManagerTemplate, "%MANAGER%", person.Manager)
-
-			req, _ = http.NewRequest("PATCH", endpoint+"/"+personID.String(), strings.NewReader(payload))
-			req.SetBasicAuth(username, password)
-			req.Header.Add("Content-Type", "application/json")
-			req.Header.Add("Content-Length", strconv.Itoa(len(payload)))
-			res, err := client.Do(req)
-			if err != nil || res == nil || (res.StatusCode != 200 && res.StatusCode != 409) {
-				fmt.Println(outputHTTPError("Add User to "+appName+" -> Update Manager", err, res))
-				return err
-			}
+		req, _ = http.NewRequest("PATCH", endpoint+"/"+personID.String(), strings.NewReader(payload))
+		req.SetBasicAuth(username, password)
+		req.Header.Add("Content-Type", "application/json")
+		req.Header.Add("Content-Length", strconv.Itoa(len(payload)))
+		res, err := client.Do(req)
+		if err != nil || res == nil || (res.StatusCode != 200 && res.StatusCode != 409) {
+			fmt.Println(outputHTTPError("Add User to "+appName+" -> Update User", err, res))
+			return err
 		}
 	} else {
 		// this block handles the case where the user does not exist in VBCS and needs to be added
-		payload := strings.ReplaceAll(addUserTemplate, "%USERNAME%", person.UserID)
-		payload = strings.ReplaceAll(payload, "%FIRSTNAME%", person.FirstName)
-		payload = strings.ReplaceAll(payload, "%LASTNAME%", person.LastName)
-		payload = strings.ReplaceAll(payload, "%MANAGER%", person.Manager)
-		if person.NumberOfDirects > 0 {
-			payload = strings.ReplaceAll(payload, "%ROLE%", managerRole)
-		} else {
-			payload = strings.ReplaceAll(payload, "%ROLE%", userRole)
-		}
-
 		req, _ = http.NewRequest("POST", endpoint, strings.NewReader(payload))
 		req.SetBasicAuth(username, password)
 		req.Header.Add("Content-Type", "application/json")
 		req.Header.Add("Content-Length", strconv.Itoa(len(payload)))
 		res, err := client.Do(req)
 		if err != nil || res == nil || (res.StatusCode != 201 && res.StatusCode != 200) {
-			fmt.Println(outputHTTPError("Adding user to "+appName, err, res))
+			fmt.Println(outputHTTPError("Adding user to "+appName+" -> Add New User", err, res))
 			return err
 		}
 	}

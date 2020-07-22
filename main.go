@@ -481,7 +481,7 @@ func addUserToIDCS(config Config, client *http.Client, accessToken string, perso
 // Try to add the user to a VBCS app.
 //
 func addUserToVBCSApp(appName string, endpoint string, username string, password string, addUserTemplate string,
-	replaceManagerTemplate string, userRole string, managerRole string, client *http.Client, person AriaServicePerson) error {
+	updateUserTemplate string, userRole string, managerRole string, client *http.Client, person AriaServicePerson) error {
 	// first check to see if the user already exists by doing a search on their email in VBCS which is a
 	// unique attribute
 	queryString := "q=userEmail='" + person.UserID + "'"
@@ -498,20 +498,20 @@ func addUserToVBCSApp(appName string, endpoint string, username string, password
 	json, _ := ioutil.ReadAll(res.Body)
 	personID := gjson.Get(string(json), "items.0.id")
 
-	// build either the add (post) or update (path) payload
-	payload := strings.ReplaceAll(addUserTemplate, "%USERNAME%", person.UserID)
-	payload = strings.ReplaceAll(payload, "%FIRSTNAME%", person.FirstName)
-	payload = strings.ReplaceAll(payload, "%LASTNAME%", person.LastName)
-	payload = strings.ReplaceAll(payload, "%MANAGER%", person.Manager)
-	if person.NumberOfDirects > 0 {
-		payload = strings.ReplaceAll(payload, "%ROLE%", managerRole)
-	} else {
-		payload = strings.ReplaceAll(payload, "%ROLE%", userRole)
-	}
-
 	// if a userid was returned then the person already exists.  In case a manager, name, or role changed we make
 	// the decision to just update all users in VBCS every time to keep things clean.
 	if len(personID.String()) > 0 {
+		// this block handles the case where the user needs to be updated
+		payload := strings.ReplaceAll(updateUserTemplate, "%USERNAME%", person.UserID)
+		payload = strings.ReplaceAll(payload, "%FIRSTNAME%", person.FirstName)
+		payload = strings.ReplaceAll(payload, "%LASTNAME%", person.LastName)
+		payload = strings.ReplaceAll(payload, "%MANAGER%", person.Manager)
+		if person.NumberOfDirects > 0 {
+			payload = strings.ReplaceAll(payload, "%ROLE%", managerRole)
+		} else {
+			payload = strings.ReplaceAll(payload, "%ROLE%", userRole)
+		}
+
 		req, _ = http.NewRequest("PATCH", endpoint+"/"+personID.String(), strings.NewReader(payload))
 		req.SetBasicAuth(username, password)
 		req.Header.Add("Content-Type", "application/json")
@@ -523,6 +523,16 @@ func addUserToVBCSApp(appName string, endpoint string, username string, password
 		}
 	} else {
 		// this block handles the case where the user does not exist in VBCS and needs to be added
+		payload := strings.ReplaceAll(addUserTemplate, "%USERNAME%", person.UserID)
+		payload = strings.ReplaceAll(payload, "%FIRSTNAME%", person.FirstName)
+		payload = strings.ReplaceAll(payload, "%LASTNAME%", person.LastName)
+		payload = strings.ReplaceAll(payload, "%MANAGER%", person.Manager)
+		if person.NumberOfDirects > 0 {
+			payload = strings.ReplaceAll(payload, "%ROLE%", managerRole)
+		} else {
+			payload = strings.ReplaceAll(payload, "%ROLE%", userRole)
+		}
+
 		req, _ = http.NewRequest("POST", endpoint, strings.NewReader(payload))
 		req.SetBasicAuth(username, password)
 		req.Header.Add("Content-Type", "application/json")

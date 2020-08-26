@@ -63,6 +63,7 @@ type AriaServicePerson struct {
 	FirstName       string `json:"givenname"`
 	Manager         string `json:"manager"`
 	DisplayName     string `json:"displayname"`
+	Lob             string `json:"lob"`
 	NumberOfDirects int    `json:"num_directs"`
 }
 
@@ -506,6 +507,7 @@ func addUserToVBCSApp(appName string, endpoint string, username string, password
 		payload = strings.ReplaceAll(payload, "%FIRSTNAME%", person.FirstName)
 		payload = strings.ReplaceAll(payload, "%LASTNAME%", person.LastName)
 		payload = strings.ReplaceAll(payload, "%MANAGER%", person.Manager)
+		payload = strings.ReplaceAll(payload, "%LOB%", person.Lob)
 		if person.NumberOfDirects > 0 {
 			payload = strings.ReplaceAll(payload, "%ROLE%", managerRole)
 		} else {
@@ -527,6 +529,7 @@ func addUserToVBCSApp(appName string, endpoint string, username string, password
 		payload = strings.ReplaceAll(payload, "%FIRSTNAME%", person.FirstName)
 		payload = strings.ReplaceAll(payload, "%LASTNAME%", person.LastName)
 		payload = strings.ReplaceAll(payload, "%MANAGER%", person.Manager)
+		payload = strings.ReplaceAll(payload, "%LOB%", person.Lob)
 		if person.NumberOfDirects > 0 {
 			payload = strings.ReplaceAll(payload, "%ROLE%", managerRole)
 		} else {

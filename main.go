@@ -88,9 +88,6 @@ const LIST = "--list"
 func main() {
 	println("Invocation Start: " + time.Now().Format(time.RFC3339))
 
-	// IDCS accessToken
-	var accessToken string
-
 	// determine if we are synchronizing or deleting users for this run
 	var runMode string
 	runMode = invocationRunMode()
@@ -100,6 +97,9 @@ func main() {
 
 	// create HTTP Client
 	client := &http.Client{}
+
+	// Get IDCS accessToken
+	accessToken := getIDCSAccessToken(config, client)
 
 	// retrieve all person objects from corporate identity feed
 	fmt.Println("Calling corporate identity feed to retrieve SE org")
@@ -122,7 +122,7 @@ func main() {
 			// get a new IDCS access token if we've processed 1000 users.  Access tokens last 60 minutes and experimentally
 			// processing of around 1500 users with current APIs and hardware seems to take about one hour.  So to avoid a
 			// token timeout grab a new token every 1000 processed users.
-			if i%1000 == 0 {
+			if i > 0 && i%1000 == 0 {
 				fmt.Println("** Refreshing IDCS OAuth access token...")
 				accessToken = getIDCSAccessToken(config, client)
 			}

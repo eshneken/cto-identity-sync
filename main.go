@@ -123,6 +123,14 @@ func main() {
 				fmt.Printf("* Processing user [%d/%d] -> %s\n", i+1, len(peopleList.Items), person.DisplayName)
 			}
 
+			// get a new IDCS access token if we've processed 1000 users.  Access tokens last 60 minutes and experimentally
+			// processing of around 1500 users with current APIs and hardware seems to take about one hour.  So to avoid a
+			// token timeout grab a new token every 1000 processed users.
+			if i%1000 == 0 {
+				fmt.Println("** Refreshing IDCS OAuth access token...")
+				accessToken = getIDCSAccessToken(config, client)
+			}
+
 			// if we made it this far then the user has been fully added to IDCS, groups, and VBCS apps so count the success
 			err := errors.New("")
 			if runMode == LIST {

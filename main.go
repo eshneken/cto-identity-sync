@@ -64,6 +64,7 @@ type AriaServicePerson struct {
 	Manager         string `json:"manager"`
 	DisplayName     string `json:"displayname"`
 	Lob             string `json:"lob"`
+	LobParent       string `json:"lob_parent"`
 	NumberOfDirects int    `json:"num_directs"`
 	AppMap          string `json:"app_map"`
 }
@@ -162,7 +163,7 @@ func main() {
 
 	if runMode == ADD || runMode == DELETE {
 		// sync OEC to IDCS
-		println("*** Synchronizing IDCS to OEC in prep for second loop")
+		println("*** Synchronizing IDCS to OCE in prep for second loop")
 		syncErr := syncOCEProfileData(config.OceBaseURL, config.OceUsername, config.OcePassword, client)
 		if syncErr != nil {
 			println("Can't sync OCE profile repository so no point in trying to load/unload OCE.  EXITING....")
@@ -171,21 +172,25 @@ func main() {
 
 		// loop through all users and load/unload into OCE
 		usersSucessfullyProcessed = 0
-		println("*** Loop 2/2:  Synchronize with OEC")
+		println("*** Loop 2/2:  Synchronize with OCE")
 		for i, person := range peopleList.Items {
 			fmt.Printf("* Processing user [%d/%d] -> %s\n", i+1, len(peopleList.Items), person.DisplayName)
 
-			err := errors.New("")
-			if runMode == DELETE {
-				err = deleteOCEUser(config, client, accessToken, person)
-			}
-			if runMode == ADD {
-				err = addOCEUser(config, client, accessToken, person)
-			}
-			if err != nil {
-				fmt.Println(err.Error())
+			if strings.Contains(person.AppMap, "ECAL") {
+				err := errors.New("")
+				if runMode == DELETE {
+					err = deleteOCEUser(config, client, accessToken, person)
+				}
+				if runMode == ADD {
+					err = addOCEUser(config, client, accessToken, person)
+				}
+				if err != nil {
+					fmt.Println(err.Error())
+				} else {
+					usersSucessfullyProcessed++
+				}
 			} else {
-				usersSucessfullyProcessed++
+				fmt.Printf("** Skipping user, OCE is only for ECAL application mappings...\n")
 			}
 
 			// REMOVE AFTER TESTING:  Stop at some fixed count
@@ -305,15 +310,18 @@ func addIDCSVBCSUser(config Config, client *http.Client, accessToken string, per
 
 	// add the user to the ECAL VBCS app user repository.  If the user exists, check the manager to make sure that
 	// data is current and update if needed
-	if strings.Contains(person.AppMap, "ECAL") {
-		err = addUserToVBCSApp("ECAL", config.EcalUserEndpoint, config.VbcsUsername, config.VbcsPassword,
-			config.EcalUserAddPayload, config.EcalUpdateManagerPayload, config.EcalUserRoleCode, config.EcalManagerRoleCode,
-			client, person)
-		if err != nil {
-			fmt.Println("Error adding user to ECAL App, continuing to next user...")
-			return err
+	/*
+		if strings.Contains(person.AppMap, "ECAL") {
+			err = addUserToVBCSApp("ECAL", config.EcalUserEndpoint, config.VbcsUsername, config.VbcsPassword,
+				config.EcalUserAddPayload, config.EcalUpdateManagerPayload, config.EcalUserRoleCode, config.EcalManagerRoleCode,
+				client, person)
+			if err != nil {
+				fmt.Println("Error adding user to ECAL App, continuing to next user...")
+				return err
+			}
 		}
-	}
+	*/
+
 	// add the user to the ECAL VBCS app user repository.  If the user exists, check the manager to make sure that
 	// data is current and update if needed
 	if strings.Contains(person.AppMap, "STS") {
@@ -518,6 +526,7 @@ func addUserToVBCSApp(appName string, endpoint string, username string, password
 		payload = strings.ReplaceAll(payload, "%LASTNAME%", person.LastName)
 		payload = strings.ReplaceAll(payload, "%MANAGER%", person.Manager)
 		payload = strings.ReplaceAll(payload, "%LOB%", person.Lob)
+		payload = strings.ReplaceAll(payload, "%LOBPARENT%", person.LobParent)
 		if person.NumberOfDirects > 0 {
 			payload = strings.ReplaceAll(payload, "%ROLE%", managerRole)
 		} else {
@@ -540,6 +549,7 @@ func addUserToVBCSApp(appName string, endpoint string, username string, password
 		payload = strings.ReplaceAll(payload, "%LASTNAME%", person.LastName)
 		payload = strings.ReplaceAll(payload, "%MANAGER%", person.Manager)
 		payload = strings.ReplaceAll(payload, "%LOB%", person.Lob)
+		payload = strings.ReplaceAll(payload, "%LOBPARENT%", person.LobParent)
 		if person.NumberOfDirects > 0 {
 			payload = strings.ReplaceAll(payload, "%ROLE%", managerRole)
 		} else {

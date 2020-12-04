@@ -310,17 +310,15 @@ func addIDCSVBCSUser(config Config, client *http.Client, accessToken string, per
 
 	// add the user to the ECAL VBCS app user repository.  If the user exists, check the manager to make sure that
 	// data is current and update if needed
-	/*
-		if strings.Contains(person.AppMap, "ECAL") {
-			err = addUserToVBCSApp("ECAL", config.EcalUserEndpoint, config.VbcsUsername, config.VbcsPassword,
-				config.EcalUserAddPayload, config.EcalUpdateManagerPayload, config.EcalUserRoleCode, config.EcalManagerRoleCode,
-				client, person)
-			if err != nil {
-				fmt.Println("Error adding user to ECAL App, continuing to next user...")
-				return err
-			}
+	if strings.Contains(person.AppMap, "ECAL") {
+		err = addUserToVBCSApp("ECAL", config.EcalUserEndpoint, config.VbcsUsername, config.VbcsPassword,
+			config.EcalUserAddPayload, config.EcalUpdateManagerPayload, config.EcalUserRoleCode, config.EcalManagerRoleCode,
+			client, person)
+		if err != nil {
+			fmt.Println("Error adding user to ECAL App, continuing to next user...")
+			return err
 		}
-	*/
+	}
 
 	// add the user to the ECAL VBCS app user repository.  If the user exists, check the manager to make sure that
 	// data is current and update if needed
